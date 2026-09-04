@@ -5,6 +5,10 @@
 		"preview": "preview.png",
 		"main": "dist/whatsThatGenre-plus.js",
 		"readme": "README.md",
+		"authors": [
+			{ "name": "Abdullah Pesteli", "url": "https://github.com/AbdullahPesteli" },
+			{ "name": "LucasOe (original)", "url": "https://github.com/LucasOe/spicetify-genres" }
+		],
 		"tags": ["genre", "genres", "discogs", "metadata", "now playing"]
 	}
 ]
