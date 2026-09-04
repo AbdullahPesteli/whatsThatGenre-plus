@@ -1,0 +1,20 @@
+{
+	"name": "whats-that-genre-plus",
+	"version": "2.0.0",
+	"description": "Spicetify extension that shows the current track's genres & sub-styles from Discogs (with Apple Music fallback), because Spotify removed genres from its client.",
+	"license": "MIT",
+	"scripts": {
+		"build": "spicetify-creator",
+		"build-local": "spicetify-creator --out=dist --minify",
+		"watch": "spicetify-creator --watch"
+	},
+	"devDependencies": {
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"prettier": "^3.8.2",
+		"spicetify-creator": "^1.0.17"
+	},
+	"dependencies": {
+		"@types/spotify-api": "^0.0.26"
+	}
+}

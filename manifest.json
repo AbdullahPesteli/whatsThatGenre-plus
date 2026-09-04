@@ -1,0 +1,10 @@
+[
+	{
+		"name": "What's That Genre? Plus",
+		"description": "Shows the currently playing track's genres and sub-styles from the Discogs catalog, with an Apple Music fallback. Works even for niche tracks — because Spotify removed genres from its client.",
+		"preview": "preview.png",
+		"main": "dist/whatsThatGenre-plus.js",
+		"readme": "README.md",
+		"tags": ["genre", "genres", "discogs", "metadata", "now playing"]
+	}
+]
