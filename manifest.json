@@ -1,14 +1,26 @@
 [
-	{
-		"name": "What's That Genre? Plus",
-		"description": "Shows the currently playing track's genres and sub-styles from the Discogs catalog, with an Apple Music fallback. Works even for niche tracks — because Spotify removed genres from its client.",
-		"preview": "preview.png",
-		"main": "dist/whatsThatGenre-plus.js",
-		"readme": "README.md",
-		"authors": [
-			{ "name": "Abdullah Pesteli", "url": "https://github.com/AbdullahPesteli" },
-			{ "name": "LucasOe (original)", "url": "https://github.com/LucasOe/spicetify-genres" }
-		],
-		"tags": ["genre", "genres", "discogs", "metadata", "now playing"]
-	}
+  {
+    "name": "What's That Genre? Plus",
+    "description": "Shows the currently playing track's genres and sub-styles from the Discogs catalog, with an Apple Music fallback. Works even for niche tracks — because Spotify removed genres from its client.",
+    "preview": "preview.gif",
+    "main": "dist/whatsThatGenre-plus.js",
+    "readme": "README.md",
+    "authors": [
+      {
+        "name": "Abdullah Pesteli",
+        "url": "https://github.com/AbdullahPesteli"
+      },
+      {
+        "name": "LucasOe (original)",
+        "url": "https://github.com/LucasOe/spicetify-genres"
+      }
+    ],
+    "tags": [
+      "genre",
+      "genres",
+      "discogs",
+      "metadata",
+      "now playing"
+    ]
+  }
 ]

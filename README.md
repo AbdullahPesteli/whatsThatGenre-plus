@@ -5,8 +5,10 @@ A [Spicetify](https://spicetify.app) extension that shows the **genres and sub-s
 > **Why "Plus"?** Spotify removed genre data from its client (the artist `genres` field is deprecated/empty and there is no genre field in the GraphQL `artistUnion`). So the original genre extensions now show nothing for most tracks. This fork ignores Spotify's dead genre source entirely and resolves genres **per-track** from open music databases.
 
 <p align="center">
-  <img alt="preview" src="./preview.png" />
+  <img alt="What's That Genre? Plus — track detection, Discogs match, and animated playbar genre output" src="./preview.gif" />
 </p>
+
+The animation uses a real niche catalog result: **Simon Le Grec — Lonely Hearts, Pt. II** → *Ambient, Downtempo, Progressive House, House, Electro*. No personal Spotify data is shown. A static fallback is available at [`preview.png`](./preview.png).
 
 ## How it works
 
