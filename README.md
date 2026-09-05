@@ -2,21 +2,28 @@
 
 A [Spicetify](https://spicetify.app) extension that restores **genres and sub-styles for the current track** in Spotify's now-playing bar, using open music databases instead of Spotify's removed genre source.
 
-<p align="center">
-  <a href="https://abdullahpesteli.github.io/whatsThatGenre-plus/">
-    <img width="680" alt="Compact What's That Genre? Plus product preview showing a Discogs match and genres in the playbar" src="./preview.png">
-  </a>
-</p>
+> **Privacy-safe preview:** generic, fixed showcase data only—no personal Spotify account, library, playlist, or listening history.
 
-<p align="center">
-  <strong><a href="https://abdullahpesteli.github.io/whatsThatGenre-plus/">▶ Try the interactive demo</a></strong>
-  &nbsp;·&nbsp;
-  <a href="#install">Install</a>
-  &nbsp;·&nbsp;
-  <a href="./preview.mp4">Watch 18s preview</a>
-</p>
+<details>
+<summary><strong>▶ See it work — 3 steps</strong></summary>
 
-> The preview and demo use generic, fixed showcase data—never a personal Spotify account, library, or playlist.
+<br>
+
+**1 · Detect — read the playing track**
+
+<img width="900" alt="Step 1 — Detect: public track metadata for Lonely Hearts Pt. II by Simon Le Grec is ready for matching" src="./docs/assets/readme-step-1-detect.png">
+
+**2 · Discogs match — verify the best release**
+
+<img width="900" alt="Step 2 — Discogs match: Lonely Hearts Pt. II by Simon Le Grec is confidently matched using public release metadata" src="./docs/assets/readme-step-2-match.png">
+
+**3 · Playbar reveal — show the resolved genres**
+
+<img width="900" alt="Step 3 — Playbar reveal: Progressive House, Ambient, and Downtempo appear beside a Discogs source badge" src="./docs/assets/readme-step-3-reveal.png">
+
+<p align="center"><a href="https://abdullahpesteli.github.io/whatsThatGenre-plus/">Open full interactive demo</a> · <a href="./preview.mp4">Watch 18s preview</a></p>
+
+</details>
 
 ## Install
 
