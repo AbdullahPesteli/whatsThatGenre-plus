@@ -5,7 +5,7 @@ A [Spicetify](https://spicetify.app) extension that restores **genres and sub-st
 > **Privacy-safe preview:** generic, fixed showcase data only—no personal Spotify account, library, playlist, or listening history.
 
 <details>
-<summary><strong>▶ See it work — 3 steps</strong></summary>
+<summary><strong>See it work — 3 steps</strong></summary>
 
 <br>
 
