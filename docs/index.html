@@ -1,22 +1,252 @@
 <!doctype html>
-<html lang="en"><head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="What's That Genre? Plus reveals genres and sub-styles for the track playing in Spotify.">
-<title>What's That Genre? Plus</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><circle cx=%2232%22 cy=%2232%22 r=%2230%22 fill=%22%231ed760%22/><text x=%2232%22 y=%2242%22 text-anchor=%22middle%22 font-size=%2234%22>♪</text></svg>">
-<style>
-:root{--green:#1ed760;--ink:#f7f7f7;--muted:#a7a7a7;--line:#2b2b2b;--panel:#181818;--black:#0a0a0a;--ease:cubic-bezier(.22,1,.36,1)}*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--black);color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.5}button,a{font:inherit}.nav{height:72px;display:flex;align-items:center;justify-content:space-between;max-width:1180px;margin:auto;padding:0 28px}.brand{display:flex;gap:11px;align-items:center;color:#fff;text-decoration:none;font-weight:760;letter-spacing:-.02em}.mark{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--green);color:#07140b;font-size:15px}.navlinks{display:flex;gap:9px;align-items:center}.button{min-height:46px;border:1px solid #3a3a3a;border-radius:999px;padding:11px 20px;background:#fff;color:#090909;text-decoration:none;font-weight:720;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .18s,background .18s,border-color .18s}.button:hover{transform:translateY(-2px)}.button.secondary{background:transparent;color:#fff}.button.green{background:var(--green);border-color:var(--green)}.hero{max-width:1180px;margin:70px auto 45px;padding:0 28px;display:grid;grid-template-columns:.82fr 1.18fr;gap:70px;align-items:center}.eyebrow{color:var(--green);font-size:12px;text-transform:uppercase;letter-spacing:.14em;font-weight:800}.hero h1{font-size:clamp(48px,6.2vw,84px);line-height:.94;letter-spacing:-.064em;margin:17px 0 24px;max-width:650px}.hero p{font-size:18px;color:#bdbdbd;max-width:530px}.ctas{display:flex;flex-wrap:wrap;gap:10px;margin-top:30px}.demo{background:#121212;border:1px solid var(--line);border-radius:20px;overflow:hidden;box-shadow:0 30px 90px #000}.demo-head{display:flex;align-items:center;justify-content:space-between;padding:15px 17px;border-bottom:1px solid var(--line);background:#171717}.dots{display:flex;gap:7px}.dots i{display:block;width:9px;height:9px;border-radius:50%;background:#3b3b3b}.live{font-size:11px;font-weight:800;letter-spacing:.12em;color:#8d8d8d}.demo-body{min-height:460px;padding:25px;display:flex;flex-direction:column}.tracks{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.track{min-height:52px;padding:8px 11px;border-radius:9px;border:1px solid #2b2b2b;background:#1b1b1b;color:#a9a9a9;text-align:left;cursor:pointer;overflow:hidden}.track strong,.track span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.track strong{font-size:12px;color:#e8e8e8}.track span{font-size:10px}.track[aria-selected="true"]{border-color:var(--green);background:#17241b;color:#c8c8c8}.stage{position:relative;flex:1;display:grid;place-items:center;padding:22px 0}.scene{width:100%;max-width:520px;opacity:0;transform:translateY(14px);transition:opacity .42s var(--ease),transform .42s var(--ease);pointer-events:none;position:absolute}.scene.active{opacity:1;transform:none;pointer-events:auto}.detect-card{display:flex;align-items:center;gap:17px;padding:18px;background:#202020;border-radius:12px;border:1px solid #323232}.art{width:78px;height:78px;border-radius:6px;object-fit:cover;background:linear-gradient(135deg,#544a51,#1d2722)}.song-meta{min-width:0;flex:1}.song-meta b,.song-meta span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.song-meta b{font-size:18px}.song-meta span{color:var(--muted);font-size:13px;margin-top:2px}.pulse{width:12px;height:12px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 #1ed76088;animation:pulse 1.7s infinite}@keyframes pulse{70%{box-shadow:0 0 0 12px #1ed76000}}.resolve{padding:25px;background:#202020;border:1px solid #323232;border-radius:12px}.query{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#c8c8c8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.route{display:flex;align-items:center;gap:11px;margin-top:22px}.source{font-size:11px;letter-spacing:.12em;background:#303030;border:1px solid #444;border-radius:5px;padding:6px 8px}.line{height:2px;flex:1;background:linear-gradient(90deg,var(--green),#3c3c3c)}.match{font-size:12px;color:var(--green);font-weight:750}.playbar{background:#050505;border:1px solid #303030;border-radius:12px;padding:14px;display:flex;gap:13px;align-items:center}.playbar .art{width:62px;height:62px}.result{min-width:0;flex:1}.result b,.result small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.result small{color:var(--muted)}.genres{display:flex;gap:6px;overflow-x:auto;margin-top:9px;scrollbar-width:none}.genres::-webkit-scrollbar{display:none}.chip{flex:none;border-radius:999px;background:#252525;border:1px solid #3a3a3a;padding:4px 8px;font-size:10px}.badge{flex:none;font-size:9px;font-weight:850;letter-spacing:.1em;color:var(--green);border:1px solid #1e6f3a;border-radius:4px;padding:4px 6px}.steps{display:flex;gap:6px;align-items:center;justify-content:center;margin:0 0 17px}.step{width:42px;min-height:44px;border:0;background:transparent;color:#777;cursor:pointer;position:relative;font-size:12px}.step:after{content:"";position:absolute;left:8px;right:8px;bottom:5px;height:2px;background:#393939}.step.active{color:#fff}.step.active:after{background:var(--green)}.controls{display:flex;gap:9px;justify-content:space-between}.controls button{min-height:46px;padding:10px 18px;border-radius:999px;border:1px solid #3b3b3b;background:#222;color:#fff;cursor:pointer;font-weight:700}.controls button.primary{background:#fff;color:#090909;border-color:#fff;min-width:130px}.controls button:disabled{opacity:.35;cursor:not-allowed}.section{max-width:1180px;margin:110px auto;padding:0 28px}.section-title{max-width:680px}.section h2{font-size:clamp(34px,4vw,55px);letter-spacing:-.05em;line-height:1.02;margin:12px 0}.features{border-top:1px solid var(--line);margin-top:48px}.feature{display:grid;grid-template-columns:60px 1fr 1fr;gap:20px;padding:29px 0;border-bottom:1px solid var(--line);align-items:start}.num{font:12px ui-monospace,monospace;color:var(--green)}.feature h3{font-size:21px;margin:0}.feature p{color:var(--muted);margin:0}.install{background:#171717;border:1px solid #292929;border-radius:20px;padding:42px;display:flex;align-items:center;justify-content:space-between;gap:30px}.install h2{margin:0 0 12px}.install p{color:var(--muted);margin:0}.footer{max-width:1180px;margin:100px auto 0;padding:26px 28px 45px;border-top:1px solid var(--line);display:flex;justify-content:space-between;color:#777;font-size:13px}button:focus-visible,a:focus-visible{outline:3px solid #fff;outline-offset:3px}@media(max-width:850px){.hero{grid-template-columns:1fr;gap:42px;margin-top:35px}.hero h1{font-size:58px}.demo-body{min-height:500px}.feature{grid-template-columns:45px 1fr}.feature p{grid-column:2}.install{align-items:flex-start;flex-direction:column}}@media(max-width:520px){.nav{height:62px;padding:0 18px}.navlinks .secondary{display:none}.button{padding:10px 16px}.hero{padding:0 18px;margin:42px auto 20px;gap:35px}.hero h1{font-size:48px}.hero p{font-size:16px}.demo{border-radius:15px;margin:0 -4px}.demo-body{padding:14px;min-height:484px}.tracks{gap:5px}.track{padding:7px;min-height:57px}.track strong{font-size:11px}.stage{padding:16px 0}.detect-card{padding:13px}.art{width:62px;height:62px}.playbar{padding:10px}.playbar .art{width:50px;height:50px}.controls button{padding:9px 14px}.section{margin-top:80px;padding:0 18px}.feature{grid-template-columns:34px 1fr;padding:23px 0;gap:10px}.feature p{grid-column:2}.install{padding:27px}.footer{padding-left:18px;padding-right:18px;gap:15px;flex-direction:column}.nav .button{min-height:44px}}@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
-</style></head>
-<body data-marker="interactive-genre-demo">
-<nav class="nav"><a class="brand" href="#top"><span class="mark">♪</span>What's That Genre? Plus</a><div class="navlinks"><a class="button secondary" href="https://github.com/AbdullahPesteli/whatsThatGenre-plus">Source</a><a class="button green" href="#install">Install</a></div></nav>
-<main id="top"><section class="hero"><div><div class="eyebrow">Genres, back in Spotify</div><h1>Hear it.<br>Now name it.</h1><p>What's That Genre? Plus identifies the track, checks open music databases, and adds real genres and sub-styles to your now-playing bar.</p><div class="ctas"><a class="button green" href="#demo">Try the demo</a><a class="button secondary" href="https://github.com/AbdullahPesteli/whatsThatGenre-plus">View source</a></div></div>
-<div class="demo" id="demo" aria-label="Interactive genre lookup demo"><div class="demo-head"><span class="dots"><i></i><i></i><i></i></span><span class="live">INTERACTIVE DEMO</span></div><div class="demo-body"><div class="tracks" role="tablist" aria-label="Choose a track"><button class="track" role="tab" data-track="0"><strong>Lonely Hearts Pt. II</strong><span>Simon Le Grec</span></button><button class="track" role="tab" data-track="1"><strong>Sorry</strong><span>Parcels</span></button><button class="track" role="tab" data-track="2"><strong>D.A.N.C.E.</strong><span>Justice</span></button></div><div class="stage" aria-live="polite">
-<div class="scene" data-scene="0"><div class="detect-card"><img class="art" src="album.png" alt="Generic album artwork"><div class="song-meta"><b data-title></b><span data-artist></span><span>Current track detected</span></div><i class="pulse" aria-hidden="true"></i></div></div>
-<div class="scene" data-scene="1"><div class="resolve"><div class="query">artist=<span data-artist></span>&amp;release_title=<span data-title></span></div><div class="route"><span class="source">DISCOGS</span><i class="line"></i><span class="match">MATCH FOUND</span></div></div></div>
-<div class="scene" data-scene="2"><div class="playbar"><img class="art" src="album.png" alt="Generic album artwork"><div class="result"><b data-title></b><small data-artist></small><div class="genres" data-genres></div></div><span class="badge">DISCOGS</span></div></div></div>
-<div class="steps" role="tablist" aria-label="Demo steps"><button class="step" data-step="0" aria-label="Step 1: detect">01</button><button class="step" data-step="1" aria-label="Step 2: resolve">02</button><button class="step" data-step="2" aria-label="Step 3: reveal">03</button></div><div class="controls"><button id="back">← Back</button><button class="primary" id="next">Resolve genre →</button></div></div></div></section>
-<section class="section"><div class="section-title"><div class="eyebrow">No setup ritual</div><h2>One tiny extension. Three quiet moves.</h2></div><div class="features"><article class="feature"><span class="num">01</span><h3>Detect the exact track</h3><p>Reads the song already playing. No library scan and no account data exposed.</p></article><article class="feature"><span class="num">02</span><h3>Resolve, never invent</h3><p>Discogs supplies rich genres and sub-styles; Apple Music is the keyless fallback.</p></article><article class="feature"><span class="num">03</span><h3>Stay out of the way</h3><p>Results are cached locally and live in one compact line inside the playbar.</p></article></div></section>
-<section class="section" id="install"><div class="install"><div><div class="eyebrow">Install and forget</div><h2>No API key. No database.</h2><p>Open the repository for Marketplace and manual installation instructions.</p></div><a class="button green" href="https://github.com/AbdullahPesteli/whatsThatGenre-plus#install-spicetify-marketplace">Install from GitHub</a></div></section></main><footer class="footer"><span>MIT · Built on LucasOe/spicetify-genres</span><span>Discogs primary · Apple Music fallback</span></footer>
-<script>
-(()=>{const tracks=[{title:'Lonely Hearts Pt. II',artist:'Simon Le Grec',genres:['Ambient','Downtempo','Progressive House','House','Electro']},{title:'Sorry',artist:'Parcels',genres:['Synth-Pop','Disco','Alt-Pop']},{title:'D.A.N.C.E.',artist:'Justice',genres:['Electro','Synth-Pop','Nu-Disco','French House']}];let track=0,step=0;const q=s=>document.querySelector(s),qa=s=>[...document.querySelectorAll(s)];function render(){const t=tracks[track];qa('[data-title]').forEach(e=>e.textContent=t.title);qa('[data-artist]').forEach(e=>e.textContent=t.artist);q('[data-genres]').innerHTML=t.genres.map(g=>`<span class="chip">${g}</span>`).join('');qa('[data-scene]').forEach((e,i)=>e.classList.toggle('active',i===step));qa('[data-step]').forEach((e,i)=>{e.classList.toggle('active',i===step);e.setAttribute('aria-selected',i===step)});qa('[data-track]').forEach((e,i)=>e.setAttribute('aria-selected',i===track));q('#back').disabled=step===0;q('#next').textContent=step===0?'Resolve genre →':step===1?'Reveal in playbar →':'↻ Replay';q('.stage').setAttribute('aria-label',`Step ${step+1} of 3 for ${t.title}`)}q('#next').onclick=()=>{step=step===2?0:step+1;render()};q('#back').onclick=()=>{step=Math.max(0,step-1);render()};qa('[data-step]').forEach((e,i)=>e.onclick=()=>{step=i;render()});qa('[data-track]').forEach((e,i)=>e.onclick=()=>{track=i;step=0;render()});render()})();
-</script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Try the compact interactive demo for What's That Genre? Plus, a Spicetify extension that restores track genres and sub-styles.">
+  <meta name="theme-color" content="#0b0b0b">
+  <title>What's That Genre? Plus — interactive demo</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><circle cx=%2232%22 cy=%2232%22 r=%2230%22 fill=%22%231ed760%22/><text x=%2232%22 y=%2242%22 text-anchor=%22middle%22 font-size=%2234%22>♪</text></svg>">
+  <link rel="icon" href="data:,">
+  <style>
+    :root{--green:#1ed760;--green-dark:#0c381d;--ink:#f5f5f5;--muted:#a7a7a7;--muted-2:#7a7a7a;--line:#303030;--panel:#171717;--panel-2:#202020;--black:#0b0b0b;--ease:cubic-bezier(.22,1,.36,1)}
+    *{box-sizing:border-box}
+    html{background:var(--black)}
+    body{margin:0;min-width:320px;background:var(--black);color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.45}
+    button,a{font:inherit}
+    a{color:inherit}
+    .nav{height:64px;max-width:1180px;margin:auto;padding:0 24px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #1f1f1f}
+    .brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:780;letter-spacing:-.025em}
+    .mark{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:var(--green);color:#07150c;font-size:15px}
+    .nav-actions{display:flex;align-items:center;gap:8px}
+    .button{min-height:44px;padding:9px 17px;border:1px solid #3d3d3d;border-radius:999px;background:transparent;color:#fff;text-decoration:none;font-weight:730;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;transition:transform .18s var(--ease),border-color .18s,background .18s}
+    .button:hover{transform:translateY(-1px);border-color:#696969}
+    .button.green{background:var(--green);border-color:var(--green);color:#061209}
+    .shell{max-width:1180px;margin:0 auto;padding:30px 24px 22px}
+    .intro{display:flex;align-items:end;justify-content:space-between;gap:32px;margin:0 auto 24px}
+    .kicker{display:flex;align-items:center;gap:9px;margin-bottom:9px;color:var(--green);font-size:11px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}
+    .kicker:before{content:"";width:22px;height:2px;background:var(--green)}
+    h1{margin:0;font-size:clamp(34px,4.2vw,58px);line-height:1;letter-spacing:-.04em;font-weight:820}
+    .intro p{max-width:455px;margin:0 0 2px;color:#b5b5b5;font-size:15px}
+    .console{height:554px;display:grid;grid-template-columns:238px minmax(0,1fr);overflow:hidden;background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:0 22px 65px rgba(0,0,0,.36)}
+    .sidebar{padding:18px;border-right:1px solid var(--line);background:#121212;display:flex;flex-direction:column}
+    .side-label,.stage-label{color:#898989;font-size:10px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}
+    .track-list{display:grid;gap:7px;margin-top:12px}
+    .track{position:relative;width:100%;min-height:62px;padding:10px 11px 10px 42px;border:1px solid transparent;border-radius:9px;background:transparent;color:#929292;text-align:left;cursor:pointer;transition:background .18s,border-color .18s,color .18s}
+    .track:before{content:attr(data-number);position:absolute;left:12px;top:17px;color:#626262;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}
+    .track strong,.track span{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .track strong{font-size:13px;color:#dedede}
+    .track span{margin-top:2px;font-size:11px}
+    .track[aria-selected="true"]{background:#1d271f;border-color:#2f6942;color:#b9b9b9}
+    .track[aria-selected="true"]:before{color:var(--green)}
+    .sidebar-note{margin:auto 2px 2px;padding-top:18px;border-top:1px solid #272727;color:#777;font-size:11px;line-height:1.45}
+    .workspace{min-width:0;padding:17px 20px 18px;display:grid;grid-template-rows:28px minmax(0,1fr) auto}
+    .workspace-head{display:flex;align-items:start;justify-content:space-between;gap:16px}
+    .stage-status{display:flex;align-items:center;gap:7px;color:#8e8e8e;font-size:10px;font-weight:780;letter-spacing:.1em;text-transform:uppercase}
+    .stage-status i{display:block;width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 4px rgba(30,215,96,.1)}
+    .stage{position:relative;min-height:0;display:grid;place-items:center;padding:12px 10px 8px;overflow:hidden}
+    .scene{position:absolute;width:min(100%,680px);opacity:0;transform:translateY(12px);pointer-events:none;transition:opacity .36s var(--ease),transform .36s var(--ease)}
+    .scene.active{position:relative;opacity:1;transform:none;pointer-events:auto}
+    .scene-copy{margin-bottom:14px;text-align:center}
+    .scene-copy span{color:var(--green);font-size:10px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}
+    .scene-copy h2{margin:5px 0 0;font-size:clamp(23px,2.5vw,34px);line-height:1.05;letter-spacing:-.04em}
+    .panel{border:1px solid #373737;border-radius:13px;background:var(--panel-2);box-shadow:0 16px 44px rgba(0,0,0,.24)}
+    .detect-card{display:flex;align-items:center;gap:16px;padding:18px}
+    .art{position:relative;flex:none;width:76px;height:76px;border-radius:8px;overflow:hidden;background:#252525;border:1px solid #3d3d3d}
+    .art:before,.art:after{content:"";position:absolute;border-radius:50%}
+    .art:before{width:84px;height:84px;left:-24px;top:24px;border:16px solid #55715e;box-shadow:0 0 0 13px #29382e,0 0 0 27px #1c241f}
+    .art:after{width:15px;height:15px;left:10px;bottom:10px;background:var(--green);border:5px solid #111}
+    .song-meta{min-width:0;flex:1}
+    .song-meta b,.song-meta span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .song-meta b{font-size:18px;letter-spacing:-.02em}
+    .song-meta span{color:var(--muted);font-size:12px;margin-top:2px}
+    .signal{width:12px;height:12px;flex:none;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 rgba(30,215,96,.55);animation:pulse 1.7s infinite}
+    @keyframes pulse{70%{box-shadow:0 0 0 12px rgba(30,215,96,0)}}
+    .resolve{padding:22px}
+    .query-label{color:#777;font-size:10px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+    .query{margin-top:7px;padding:12px 13px;border-radius:8px;background:#151515;border:1px solid #303030;color:#c6c6c6;font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .route{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:12px;margin-top:20px}
+    .source,.source-badge{font-size:10px;font-weight:850;letter-spacing:.12em;color:var(--green);text-transform:uppercase}
+    .source{padding:7px 9px;border:1px solid #356345;border-radius:5px;background:#16241a}
+    .route-line{position:relative;height:2px;background:#363636;overflow:visible}
+    .route-line:before{content:"";position:absolute;inset:0;background:var(--green);transform-origin:left;animation:resolveLine .8s var(--ease) both}
+    @keyframes resolveLine{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+    .match{color:#d6d6d6;font-size:11px;font-weight:780}
+    .playbar{display:flex;align-items:center;gap:14px;padding:13px;background:#090909;border-color:#3c3c3c}
+    .playbar .art{width:64px;height:64px;border-radius:5px}
+    .result{min-width:0;flex:1}
+    .result b,.result small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .result b{font-size:15px}
+    .result small{margin-top:1px;color:var(--muted);font-size:11px}
+    .genres{display:flex;gap:6px;overflow-x:auto;margin-top:9px;padding-bottom:1px;scrollbar-width:none}
+    .genres::-webkit-scrollbar{display:none}
+    .chip{flex:none;padding:4px 8px;border:1px solid #3b3b3b;border-radius:999px;background:#242424;color:#ddd;font-size:10px}
+    .source-badge{flex:none;padding:5px 7px;border:1px solid #2e7447;border-radius:4px}
+    .demo-footer{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;border-top:1px solid var(--line);padding-top:14px}
+    .steps{display:flex;align-items:center;justify-content:center;gap:3px}
+    .step{position:relative;min-width:44px;min-height:44px;border:0;background:transparent;color:#717171;cursor:pointer;font:11px ui-monospace,SFMono-Regular,Menlo,monospace}
+    .step:after{content:"";position:absolute;left:12px;right:12px;bottom:5px;height:2px;background:#414141}
+    .step.active{color:#fff}
+    .step.active:after{background:var(--green)}
+    .control{min-width:100px;min-height:44px;padding:9px 15px;border-radius:999px;border:1px solid #414141;background:#222;color:#fff;cursor:pointer;font-weight:730}
+    .control:hover{border-color:#696969}
+    .control.primary{min-width:164px;background:#fff;border-color:#fff;color:#090909}
+    .control:disabled{opacity:.32;cursor:not-allowed}
+    .control:last-child{justify-self:end}
+    .trust{min-height:54px;margin-top:13px;padding:0 3px;display:grid;grid-template-columns:1.05fr 1fr auto;align-items:center;gap:24px;color:#8e8e8e;font-size:12px}
+    .trust strong{color:#d6d6d6}
+    .trust-item{display:flex;align-items:center;gap:9px;min-width:0}
+    .trust-item i{width:6px;height:6px;flex:none;border-radius:50%;background:var(--green)}
+    .install-link{min-height:44px;padding:8px 16px;display:inline-flex;align-items:center;border-left:1px solid #333;color:#fff;text-decoration:none;font-weight:740;white-space:nowrap}
+    button:focus-visible,a:focus-visible{outline:3px solid #fff;outline-offset:3px}
+    @media(max-width:800px){
+      .shell{padding-top:24px}.intro{align-items:start;flex-direction:column;gap:12px}.intro p{max-width:650px}.console{height:574px;grid-template-columns:190px minmax(0,1fr)}.sidebar{padding:14px}.track{padding-left:35px}.track:before{left:9px}.workspace{padding-left:16px;padding-right:16px}.trust{grid-template-columns:1fr 1fr}.install-link{grid-column:1/-1;border-left:0;border-top:1px solid #292929;padding-left:0}
+    }
+    @media(max-width:560px){
+      .nav{height:58px;padding:0 16px}.brand{font-size:13px}.mark{width:26px;height:26px}.nav-actions .source-link{display:none}.button{padding:8px 14px}
+      .shell{padding:20px 14px 16px}.intro{margin-bottom:16px;gap:9px}.kicker{margin-bottom:7px}h1{font-size:36px}.intro p{font-size:13px;line-height:1.4}
+      .console{height:auto;display:block;border-radius:13px}.sidebar{padding:11px;border-right:0;border-bottom:1px solid var(--line)}.side-label,.sidebar-note{display:none}.track-list{grid-template-columns:1.3fr .85fr .9fr;gap:5px;margin:0}.track{min-height:56px;padding:8px 5px;text-align:center}.track:before{display:none}.track strong{font-size:10.5px;letter-spacing:-.02em}.track span{font-size:10px}
+      .workspace{height:498px;padding:12px 12px 13px;grid-template-rows:25px minmax(0,1fr) auto}.workspace-head{align-items:start}.stage-label{font-size:9px}.stage-status{font-size:9px}.stage{padding:7px 0 5px}.scene{width:100%}.scene-copy{margin-bottom:10px}.scene-copy span{font-size:9px}.scene-copy h2{font-size:24px}.detect-card{padding:13px;gap:11px}.art{width:60px;height:60px}.song-meta b{font-size:15px}.signal{margin-right:3px}.resolve{padding:16px 13px}.query{font-size:10px}.route{gap:8px}.playbar{padding:10px;gap:9px}.playbar .art{width:50px;height:50px}.result b{font-size:13px}.chip{font-size:9px;padding:3px 7px}.source-badge{font-size:8px;padding:4px 5px}
+      .demo-footer{grid-template-columns:1fr 1fr;gap:8px;padding-top:9px}.steps{grid-row:1;grid-column:1/-1}.control{min-width:0;width:100%;padding:8px 10px}.control.primary{min-width:0}.control:last-child{justify-self:stretch}
+      .trust{min-height:0;margin-top:13px;grid-template-columns:1fr;gap:7px;font-size:11px}.trust-item:nth-child(2){display:none}.install-link{grid-column:auto;min-height:44px;margin-top:2px;padding:8px 0 0;border-top:1px solid #292929}
+    }
+    @media(max-width:360px){h1{font-size:32px}.intro p{font-size:12px}.workspace{height:510px}.source-badge{display:none}}
+    @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+  </style>
+</head>
+<body data-marker="compact-one-screen-demo-v2">
+  <nav class="nav" aria-label="Primary navigation">
+    <a class="brand" href="#demo"><span class="mark" aria-hidden="true">♪</span><span>What's That Genre? Plus</span></a>
+    <div class="nav-actions"><a class="button source-link" href="https://github.com/AbdullahPesteli/whatsThatGenre-plus">GitHub</a><a class="button green" href="https://github.com/AbdullahPesteli/whatsThatGenre-plus#install-spicetify-marketplace">Install</a></div>
+  </nav>
+  <main class="shell">
+    <header class="intro">
+      <div><div class="kicker">Live genre lookup</div><h1>Know what you're hearing.</h1></div>
+      <p>Pick a track, follow the lookup, then reveal the real genres and sub-styles added to Spotify's playbar.</p>
+    </header>
+
+    <section class="console" id="demo" aria-label="Interactive three-step genre lookup demo">
+      <aside class="sidebar">
+        <div class="side-label" id="track-list-label">Choose a track</div>
+        <div class="track-list" role="tablist" aria-labelledby="track-list-label">
+          <button class="track" id="track-0" role="tab" aria-controls="demo-stage" aria-selected="true" tabindex="0" data-track="0" data-number="01"><strong>Lonely Hearts Pt. II</strong><span>Simon Le Grec</span></button>
+          <button class="track" id="track-1" role="tab" aria-controls="demo-stage" aria-selected="false" tabindex="-1" data-track="1" data-number="02"><strong>Sorry</strong><span>Parcels</span></button>
+          <button class="track" id="track-2" role="tab" aria-controls="demo-stage" aria-selected="false" tabindex="-1" data-track="2" data-number="03"><strong>D.A.N.C.E.</strong><span>Justice</span></button>
+        </div>
+        <p class="sidebar-note">Demo data only. Generic artwork; no Spotify account, library, or playlist data.</p>
+      </aside>
+
+      <div class="workspace">
+        <div class="workspace-head"><span class="stage-label">Detect → Discogs match → Reveal</span><span class="stage-status"><i aria-hidden="true"></i>User controlled</span></div>
+        <div class="stage" id="demo-stage" role="tabpanel" aria-live="polite" aria-labelledby="track-0">
+          <div class="scene" data-scene="0">
+            <div class="scene-copy"><span>Step 01 · Detect</span><h2>Read the current track.</h2></div>
+            <div class="panel detect-card"><div class="art" role="img" aria-label="Generic geometric album artwork"></div><div class="song-meta"><b data-title></b><span data-artist></span><span>Current track detected</span></div><i class="signal" aria-hidden="true"></i></div>
+          </div>
+          <div class="scene" data-scene="1">
+            <div class="scene-copy"><span>Step 02 · Discogs match</span><h2>Resolve against the catalog.</h2></div>
+            <div class="panel resolve"><div class="query-label">Release search</div><div class="query">artist=<span data-query-artist></span>&amp;release_title=<span data-query-title></span></div><div class="route"><span class="source">Discogs</span><i class="route-line" aria-hidden="true"></i><span class="match">MATCH FOUND</span></div></div>
+          </div>
+          <div class="scene" data-scene="2">
+            <div class="scene-copy"><span>Step 03 · Reveal</span><h2>Put the answer in the playbar.</h2></div>
+            <div class="panel playbar"><div class="art" role="img" aria-label="Generic geometric album artwork"></div><div class="result"><b data-title></b><small data-artist></small><div class="genres" data-genres aria-label="Resolved genres"></div></div><span class="source-badge">Discogs</span></div>
+          </div>
+        </div>
+        <div class="demo-footer">
+          <button class="control" id="back" type="button">← Back</button>
+          <div class="steps" role="tablist" aria-label="Demo steps"><button class="step" role="tab" data-step="0" aria-label="Step 1: Detect">01</button><button class="step" role="tab" data-step="1" aria-label="Step 2: Discogs match">02</button><button class="step" role="tab" data-step="2" aria-label="Step 3: Reveal genres">03</button></div>
+          <button class="control primary" id="next" type="button">Find Discogs match →</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="trust" aria-label="Product details">
+      <span class="trust-item"><i aria-hidden="true"></i><span><strong>Discogs first.</strong> Apple Music fallback; cached per track.</span></span>
+      <span class="trust-item"><i aria-hidden="true"></i><span><strong>No API keys.</strong> No bundled database or account capture.</span></span>
+      <a class="install-link" href="https://github.com/AbdullahPesteli/whatsThatGenre-plus#install-spicetify-marketplace">Install for Spicetify →</a>
+    </div>
+  </main>
+  <script>
+    (() => {
+      const tracks = [
+        { title: "Lonely Hearts Pt. II", artist: "Simon Le Grec", genres: ["Progressive House", "Ambient", "Downtempo", "House", "Electro"] },
+        { title: "Sorry", artist: "Parcels", genres: ["Synth-Pop", "Disco", "Alt-Pop"] },
+        { title: "D.A.N.C.E.", artist: "Justice", genres: ["Electro", "House", "Nu-Disco", "French House"] }
+      ];
+      let trackIndex = 0;
+      let stepIndex = 0;
+      const one = selector => document.querySelector(selector);
+      const all = selector => [...document.querySelectorAll(selector)];
+      const trackTabs = all("[data-track]");
+      const stepTabs = all("[data-step]");
+
+      function render() {
+        const track = tracks[trackIndex];
+        all("[data-title]").forEach(element => { element.textContent = track.title; });
+        all("[data-artist]").forEach(element => { element.textContent = track.artist; });
+        all("[data-query-title]").forEach(element => { element.textContent = encodeURIComponent(track.title); });
+        all("[data-query-artist]").forEach(element => { element.textContent = encodeURIComponent(track.artist); });
+        one("[data-genres]").replaceChildren(...track.genres.map(genre => {
+          const chip = document.createElement("span");
+          chip.className = "chip";
+          chip.textContent = genre;
+          return chip;
+        }));
+        all("[data-scene]").forEach((element, index) => element.classList.toggle("active", index === stepIndex));
+        stepTabs.forEach((element, index) => {
+          const active = index === stepIndex;
+          element.classList.toggle("active", active);
+          element.setAttribute("aria-selected", String(active));
+          element.tabIndex = active ? 0 : -1;
+        });
+        trackTabs.forEach((element, index) => {
+          const selected = index === trackIndex;
+          element.setAttribute("aria-selected", String(selected));
+          element.tabIndex = selected ? 0 : -1;
+        });
+        const stage = one("#demo-stage");
+        stage.setAttribute("aria-labelledby", `track-${trackIndex}`);
+        stage.setAttribute("aria-label", `Step ${stepIndex + 1} of 3 for ${track.title} by ${track.artist}`);
+        one("#back").disabled = stepIndex === 0;
+        one("#next").textContent = stepIndex === 0 ? "Find Discogs match →" : stepIndex === 1 ? "Reveal in playbar →" : "↻ Replay";
+      }
+
+      function selectTrack(index, moveFocus = false) {
+        trackIndex = (index + tracks.length) % tracks.length;
+        stepIndex = 0;
+        render();
+        if (moveFocus) trackTabs[trackIndex].focus();
+      }
+      function selectStep(index, moveFocus = false) {
+        stepIndex = (index + 3) % 3;
+        render();
+        if (moveFocus) stepTabs[stepIndex].focus();
+      }
+
+      one("#next").addEventListener("click", () => { stepIndex = stepIndex === 2 ? 0 : stepIndex + 1; render(); });
+      one("#back").addEventListener("click", () => { stepIndex = Math.max(0, stepIndex - 1); render(); });
+      trackTabs.forEach((element, index) => {
+        element.addEventListener("click", () => selectTrack(index));
+        element.addEventListener("keydown", event => {
+          if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) event.preventDefault();
+          if (event.key === "ArrowRight" || event.key === "ArrowDown") selectTrack(trackIndex + 1, true);
+          if (event.key === "ArrowLeft" || event.key === "ArrowUp") selectTrack(trackIndex - 1, true);
+          if (event.key === "Home") selectTrack(0, true);
+          if (event.key === "End") selectTrack(tracks.length - 1, true);
+        });
+      });
+      stepTabs.forEach((element, index) => {
+        element.addEventListener("click", () => selectStep(index));
+        element.addEventListener("keydown", event => {
+          if (["ArrowRight", "ArrowDown", "ArrowLeft", "ArrowUp", "Home", "End"].includes(event.key)) event.preventDefault();
+          if (event.key === "ArrowRight" || event.key === "ArrowDown") selectStep(stepIndex + 1, true);
+          if (event.key === "ArrowLeft" || event.key === "ArrowUp") selectStep(stepIndex - 1, true);
+          if (event.key === "Home") selectStep(0, true);
+          if (event.key === "End") selectStep(2, true);
+        });
+      });
+      render();
+    })();
+  </script>
+</body>
+</html>
