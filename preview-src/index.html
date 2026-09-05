@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=1200, initial-scale=1">
+  <title>What's That Genre? Plus — animated README hero</title>
+  <style>
+    :root {
+      --green: #1ed760;
+      --ink: #f7f7f7;
+      --muted: #bfc0c8;
+      --muted-2: #858290;
+      --panel: rgba(45, 31, 72, .86);
+      --panel-line: rgba(213, 202, 232, .20);
+      --black: #000;
+      --ease: cubic-bezier(.22, 1, .36, 1);
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      width: 1200px;
+      height: 630px;
+      overflow: hidden;
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      background: #0a0a0f;
+    }
+    body {
+      position: relative;
+      background:
+        radial-gradient(840px 520px at 95% 6%, rgba(30, 215, 96, .28), transparent 66%),
+        radial-gradient(710px 560px at 2% 96%, rgba(104, 56, 176, .48), transparent 69%),
+        linear-gradient(123deg, #0a0a0f 5%, #121018 50%, #13201d 100%);
+    }
+    body::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: .026;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E");
+      mix-blend-mode: soft-light;
+    }
+    .hero {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      padding: 58px 72px 56px;
+    }
+    .eyebrow {
+      display: inline-flex;
+      min-height: 38px;
+      align-items: center;
+      border: 1px solid rgba(30, 215, 96, .72);
+      border-radius: 999px;
+      padding: 0 17px;
+      color: var(--green);
+      font-size: 14px;
+      font-weight: 760;
+      letter-spacing: -.01em;
+      box-shadow: inset 0 0 0 1px rgba(30, 215, 96, .05);
+    }
+    h1 {
+      margin: 20px 0 9px;
+      max-width: 790px;
+      font-size: 50px;
+      line-height: 1.04;
+      letter-spacing: -.042em;
+      font-weight: 820;
+    }
+    h1 .accent { color: var(--green); }
+    .dek {
+      width: 760px;
+      margin: 0;
+      color: #c8c7ce;
+      font-size: 18px;
+      line-height: 1.42;
+      letter-spacing: -.012em;
+    }
+    .now-playing {
+      position: absolute;
+      left: 72px;
+      top: 304px;
+      width: 672px;
+      height: 184px;
+      overflow: hidden;
+      border: 1px solid var(--panel-line);
+      border-radius: 14px;
+      background: linear-gradient(105deg, rgba(52, 35, 84, .88), rgba(28, 30, 38, .88));
+      box-shadow: 0 22px 50px rgba(0, 0, 0, .20), inset 0 1px 0 rgba(255, 255, 255, .025);
+    }
+    .panel-label {
+      position: absolute;
+      left: 24px;
+      top: 18px;
+      color: #aaa6b3;
+      font-size: 11px;
+      line-height: 1;
+      font-weight: 740;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+    }
+    .track-shell {
+      position: absolute;
+      left: 24px;
+      right: 24px;
+      top: 47px;
+      height: 112px;
+      overflow: hidden;
+      border-radius: 10px;
+      background: #000;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .025);
+    }
+    .track-view {
+      position: absolute;
+      inset: 0;
+    }
+    .track-layer {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      grid-template-columns: 82px minmax(0, 1fr) 34px;
+      align-items: center;
+      gap: 16px;
+      padding: 15px 16px;
+      will-change: transform, opacity, filter;
+    }
+    .cover {
+      position: relative;
+      width: 82px;
+      height: 82px;
+      overflow: hidden;
+      border-radius: 7px;
+      isolation: isolate;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08), 0 7px 18px rgba(0, 0, 0, .32);
+      will-change: transform;
+    }
+    .cover::before,
+    .cover::after,
+    .cover i { content: ""; position: absolute; display: block; }
+    .cover-a {
+      background:
+        radial-gradient(circle at 68% 34%, rgba(30, 215, 96, .92) 0 2px, transparent 3px),
+        radial-gradient(circle at 38% 68%, rgba(243, 238, 201, .90) 0 2px, transparent 3px),
+        radial-gradient(circle at 74% 73%, rgba(219, 198, 125, .85) 0 1.5px, transparent 2.5px),
+        radial-gradient(circle at 24% 29%, rgba(235, 225, 185, .68) 0 1.5px, transparent 2.5px),
+        linear-gradient(142deg, #203623, #67865d 50%, #314930);
+    }
+    .cover-a::before {
+      width: 124px; height: 38px; left: -17px; top: 23px;
+      border-radius: 50%; transform: rotate(-18deg);
+      background: rgba(178, 198, 129, .18); filter: blur(3px);
+    }
+    .cover-a::after {
+      inset: 0;
+      background: repeating-linear-gradient(103deg, transparent 0 5px, rgba(9, 25, 13, .17) 6px 7px);
+      opacity: .52;
+    }
+    .cover-b {
+      background: linear-gradient(135deg, #15191f 0 42%, #e7d35a 42% 56%, #d5562f 56% 70%, #2c3275 70% 100%);
+    }
+    .cover-b::before {
+      width: 60px; height: 60px; left: -15px; top: 28px;
+      border: 9px solid rgba(255, 255, 255, .82); border-radius: 50%;
+    }
+    .cover-b::after {
+      width: 20px; height: 112px; right: 10px; top: -15px;
+      background: rgba(8, 9, 12, .62); transform: rotate(28deg);
+    }
+    .cover-c {
+      background: radial-gradient(circle at 53% 48%, #e9a35a 0 7%, #5d2f62 8% 19%, #1b1528 20% 33%, #9e465c 34% 46%, #241c32 47% 100%);
+    }
+    .cover-c::before {
+      width: 74px; height: 13px; left: 4px; top: 34px;
+      border: 2px solid rgba(247, 218, 166, .55); transform: rotate(-12deg);
+    }
+    .cover-c::after {
+      width: 13px; height: 74px; left: 34px; top: 4px;
+      border: 2px solid rgba(247, 218, 166, .42); transform: rotate(-12deg);
+    }
+    .metadata { min-width: 0; align-self: center; }
+    .title {
+      overflow: hidden;
+      color: #fff;
+      font-size: 20px;
+      line-height: 1.08;
+      font-weight: 760;
+      letter-spacing: -.025em;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .artist {
+      overflow: hidden;
+      margin-top: 4px;
+      color: #a9a8b0;
+      font-size: 14px;
+      line-height: 1.15;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .resolution {
+      position: relative;
+      height: 25px;
+      margin-top: 9px;
+      overflow: hidden;
+      mask-image: linear-gradient(to right, #000 calc(100% - 20px), transparent);
+    }
+    .genre-row,
+    .finding {
+      position: absolute;
+      inset: 0 auto auto 0;
+      display: flex;
+      height: 25px;
+      align-items: center;
+      white-space: nowrap;
+      will-change: transform, opacity;
+    }
+    .genre-row { gap: 15px; }
+    .genre {
+      flex: none;
+      color: #f0eef3;
+      font-size: 13px;
+      line-height: 1;
+      font-weight: 560;
+    }
+    .discogs {
+      flex: none;
+      border: 1px solid rgba(30, 215, 96, .88);
+      border-radius: 999px;
+      padding: 5px 8px 4px;
+      color: var(--green);
+      font-size: 9px;
+      line-height: 1;
+      font-weight: 820;
+      letter-spacing: .08em;
+    }
+    .finding {
+      gap: 7px;
+      color: #9a98a0;
+      font-size: 13px;
+      font-weight: 560;
+    }
+    .finding-dots {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .finding-dots i {
+      position: static;
+      display: block;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: var(--green);
+      opacity: .25;
+      will-change: transform, opacity;
+    }
+    .status {
+      position: relative;
+      width: 30px;
+      height: 30px;
+      justify-self: end;
+      will-change: transform, opacity;
+    }
+    .status > * { position: absolute; inset: 0; }
+    .check {
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--green);
+      color: #08130b;
+      font-size: 18px;
+      font-weight: 900;
+      box-shadow: 0 0 0 5px rgba(30, 215, 96, .07);
+      will-change: transform, opacity;
+    }
+    .spinner {
+      border: 2px solid rgba(255, 255, 255, .12);
+      border-top-color: var(--green);
+      border-right-color: rgba(30, 215, 96, .46);
+      border-radius: 50%;
+      opacity: 0;
+      will-change: transform, opacity;
+    }
+    .flow {
+      position: absolute;
+      left: 72px;
+      top: 527px;
+      display: flex;
+      align-items: center;
+      gap: 17px;
+      height: 44px;
+    }
+    .flow-pill {
+      display: grid;
+      place-items: center;
+      min-width: 96px;
+      height: 42px;
+      padding: 0 18px;
+      border: 1px solid rgba(218, 213, 224, .26);
+      border-radius: 999px;
+      background: rgba(25, 23, 31, .56);
+      color: #f2f0f3;
+      font-size: 14px;
+      font-weight: 720;
+    }
+    .flow-pill.apple { min-width: 128px; }
+    .arrow { color: var(--green); font-size: 21px; line-height: 1; }
+    .output { color: #9b97a4; font-size: 15px; font-weight: 650; }
+  </style>
+</head>
+<body>
+  <main class="hero" aria-label="What's That Genre? Plus animated product preview">
+    <div class="eyebrow">Spicetify Extension</div>
+    <h1>Her şarkının <span class="accent">gerçek türünü</span> gör</h1>
+    <p class="dek">Spotify tür bilgisini kaldırdı. Bu eklenti çalan parçayı Discogs<br>kataloğundan çözer — niş parçalarda bile alt-türleriyle birlikte.</p>
+
+    <section class="now-playing" aria-label="Animated now-playing genre result">
+      <div class="panel-label">Çalan parçada · Canlı</div>
+      <div class="track-shell">
+        <div class="track-view" id="trackView"></div>
+      </div>
+    </section>
+
+    <div class="flow" aria-hidden="true">
+      <span class="flow-pill">Discogs</span><span class="arrow">→</span>
+      <span class="flow-pill apple">Apple Music</span><span class="arrow">→</span>
+      <span class="output">tür + alt-stiller</span>
+    </div>
+  </main>
+
+  <script>
+    const tracks = [
+      { title: "Sorry", artist: "Parcels", cover: "a", genres: ["Synth-Pop", "Disco", "Alt-Pop"] },
+      { title: "D.A.N.C.E.", artist: "Justice", cover: "b", genres: ["Electro", "Synth-Pop", "Nu-Disco", "French House"] },
+      { title: "Lonely Hearts, Pt. II", artist: "Simon Le Grec", cover: "c", genres: ["Ambient", "Downtempo", "Progressive House", "House", "Electro"] }
+    ];
+    const trackView = document.getElementById("trackView");
+
+    function clamp(value, min = 0, max = 1) { return Math.max(min, Math.min(max, value)); }
+    function easeOut(value) { const t = clamp(value); return 1 - Math.pow(1 - t, 3); }
+    function easeInOut(value) { const t = clamp(value); return t < .5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2; }
+    function mix(a, b, t) { return a + (b - a) * t; }
+
+    function layer(track, index) {
+      const genres = track.genres.map((genre, genreIndex) => `<span class="genre" data-genre="${genreIndex}">${genre}</span>`).join("");
+      const element = document.createElement("div");
+      element.className = "track-layer";
+      element.dataset.index = String(index);
+      element.innerHTML = `
+        <div class="cover cover-${track.cover}"><i></i></div>
+        <div class="metadata">
+          <div class="title">${track.title}</div>
+          <div class="artist">${track.artist}</div>
+          <div class="resolution">
+            <div class="genre-row">${genres}<span class="discogs">DISCOGS</span></div>
+            <div class="finding"><span>Türler bulunuyor</span><span class="finding-dots"><i></i><i></i><i></i></span></div>
+          </div>
+        </div>
+        <div class="status"><div class="spinner"></div><div class="check">✓</div></div>`;
+      trackView.appendChild(element);
+      return {
+        root: element,
+        cover: element.querySelector(".cover"),
+        genres: element.querySelector(".genre-row"),
+        genreItems: [...element.querySelectorAll("[data-genre]")],
+        finding: element.querySelector(".finding"),
+        dots: [...element.querySelectorAll(".finding-dots i")],
+        spinner: element.querySelector(".spinner"),
+        check: element.querySelector(".check")
+      };
+    }
+
+    const layers = tracks.map(layer);
+    const cycle = 9000;
+    const segment = 3000;
+    const transitionStart = 2460;
+    const transitionOutEnd = 2700;
+    const transitionInStart = 2760;
+
+    function renderAt(milliseconds) {
+      const t = ((milliseconds % cycle) + cycle) % cycle;
+      const activeIndex = Math.floor(t / segment);
+      const local = t % segment;
+      const incoming = local < 1;
+      const transition = local >= transitionStart;
+      const nextIndex = (activeIndex + 1) % tracks.length;
+
+      layers.forEach((item, index) => {
+        item.root.style.opacity = index === activeIndex ? "1" : "0";
+        item.root.style.transform = "translate3d(0,0,0)";
+        item.root.style.filter = "none";
+      });
+
+      if (transition) {
+        const out = easeInOut((local - transitionStart) / (transitionOutEnd - transitionStart));
+        const incoming = easeInOut((local - transitionInStart) / (segment - transitionInStart));
+        const current = layers[activeIndex];
+        const next = layers[nextIndex];
+        current.root.style.opacity = String(1 - out);
+        current.root.style.transform = `translate3d(0, ${mix(0, -9, out)}px, 0)`;
+        current.root.style.filter = `blur(${mix(0, .8, out)}px)`;
+        next.root.style.opacity = String(incoming);
+        next.root.style.transform = `translate3d(0, ${mix(9, 0, incoming)}px, 0)`;
+        next.root.style.filter = `blur(${mix(.8, 0, incoming)}px)`;
+      }
+
+      layers.forEach((item, index) => {
+        const isActive = index === activeIndex;
+        const isNext = transition && index === nextIndex;
+        const phaseLocal = isActive ? local : -1;
+        const findingIn = easeOut((phaseLocal - 90) / 260);
+        const findingOut = easeInOut((phaseLocal - 940) / 310);
+        const resultIn = easeOut((phaseLocal - 1120) / 390);
+        const finalGenreAt = 1080 + (item.genreItems.length - 1) * 105;
+        const checkIn = easeOut((phaseLocal - finalGenreAt - 130) / 260);
+        const endFade = transition && isActive ? easeInOut((phaseLocal - transitionStart) / (transitionOutEnd - transitionStart)) : 0;
+
+        item.finding.style.opacity = String(clamp(findingIn * (1 - findingOut) * (1 - endFade)));
+        item.finding.style.transform = `translate3d(0, ${mix(5, 0, findingIn)}px, 0)`;
+        item.genres.style.opacity = String(clamp(resultIn * (1 - endFade)));
+        item.genres.style.transform = `translate3d(0, ${mix(7, 0, resultIn)}px, 0)`;
+        item.spinner.style.opacity = String(clamp(findingIn * (1 - checkIn) * (1 - endFade)));
+        item.spinner.style.transform = `rotate(${(phaseLocal > 0 ? phaseLocal : 0) * .36}deg) scale(${mix(.84, 1, findingIn)})`;
+        item.check.style.opacity = String(clamp(checkIn * (1 - endFade)));
+        item.check.style.transform = `scale(${mix(.72, 1, checkIn)})`;
+        item.cover.style.transform = `scale(${1 + .012 * Math.sin(Math.max(0, phaseLocal) / 530)})`;
+
+        item.genreItems.forEach((genre, genreIndex) => {
+          const stagger = easeOut((phaseLocal - 1080 - genreIndex * 105) / 350);
+          genre.style.opacity = String(stagger);
+          genre.style.transform = `translate3d(0, ${mix(5, 0, stagger)}px, 0)`;
+        });
+        const discogs = item.genres.querySelector(".discogs");
+        const badgeIn = easeOut((phaseLocal - 1160 - item.genreItems.length * 92) / 300);
+        discogs.style.opacity = String(badgeIn);
+        discogs.style.transform = `scale(${mix(.84, 1, badgeIn)})`;
+
+        item.dots.forEach((dot, dotIndex) => {
+          const wave = (Math.sin(Math.max(0, phaseLocal) / 125 - dotIndex * .9) + 1) / 2;
+          dot.style.opacity = String(.25 + .75 * wave);
+          dot.style.transform = `translateY(${mix(1.5, -1.5, wave)}px)`;
+        });
+      });
+    }
+
+    window.renderAt = renderAt;
+    renderAt(0);
+
+    if (!navigator.webdriver && !new URLSearchParams(location.search).has("capture")) {
+      const start = performance.now();
+      const tick = now => { renderAt(now - start); requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    }
+  </script>
+</body>
+</html>

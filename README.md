@@ -3,9 +3,7 @@
 A [Spicetify](https://spicetify.app) extension that restores **genres and sub-styles for the current track** in Spotify's now-playing bar, using Discogs with a keyless Apple Music fallback.
 
 <p align="center">
-  <picture>
-    <img src="./preview.png" alt="What's That Genre? Plus showing genres and sub-styles in Spotify's now-playing bar">
-  </picture>
+  <img src="./preview.gif" alt="What's That Genre? Plus live now-playing panel changing songs and resolving genres through Discogs">
 </p>
 
 ## How it works
@@ -23,7 +21,8 @@ A `DISCOGS` or `TRACK` badge identifies the source. No API key, bundled database
 **Manual:** download [`dist/whatsThatGenre-plus.js`](./dist/whatsThatGenre-plus.js), copy it to `~/.config/spicetify/Extensions` (macOS/Linux) or `%userprofile%/.spicetify/Extensions/` (Windows), then run:
 
 ```bash
-spicetify config extensions whatsThatGenre-plus.js
+spicetify config extensions \
+  whatsThatGenre-plus.js
 spicetify apply
 ```
 
