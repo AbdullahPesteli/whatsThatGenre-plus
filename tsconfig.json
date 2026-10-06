@@ -1,6 +1,7 @@
 {
   "compilerOptions": {
-    "target": "ES2017",
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
     "jsx": "react",
     "module": "commonjs",
     "resolveJsonModule": true,
