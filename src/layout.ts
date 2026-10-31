@@ -74,3 +74,75 @@ export function rowWidth(
   const width = Math.max(floor, Math.min(max, available));
   return { width, tagsWidth: Math.max(0, width - badgeWidth) };
 }
+
+export interface Box {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+export interface GeoInput {
+  host: Box;
+  /** null when the progress bar is absent. */
+  bar: Box | null;
+  rowHeight: number;
+  /** Viewport bottom of the nearest clipping ancestor (+Infinity when none). */
+  clipBottom?: number;
+}
+
+export interface GeoPlacement {
+  /** Viewport top of the row. */
+  top: number;
+  overlaps: boolean;
+  hidden: boolean;
+  action: "keep" | "shifted" | "hidden";
+}
+
+/** Gap between the row's right edge and the progress bar, px. */
+export const BAR_GAP = 8;
+
+/**
+ * Row placement from real rects. The row sits at host.bottom + 2; it is only
+ * clamped (moved up) when it intersects the bar both vertically AND
+ * horizontally; hidden only if it still collides after the clamp.
+ */
+export function placeRowGeo(i: GeoInput): GeoPlacement {
+  const clip = i.clipBottom ?? Number.POSITIVE_INFINITY;
+  const top = i.host.bottom + HOST_GAP;
+  const bottom = top + i.rowHeight;
+  const h = !!i.bar && i.host.left < i.bar.right && i.host.right > i.bar.left;
+  const vBar = !!i.bar && bottom > i.bar.top + 0.5;
+  const overlaps = (vBar && h) || bottom > clip + 0.5;
+  if (!overlaps) return { top, overlaps, hidden: false, action: "keep" };
+  const limit = Math.min(
+    vBar && h && i.bar ? i.bar.top - ROW_GAP : Number.POSITIVE_INFINITY,
+    clip,
+  );
+  const clamped = Math.min(top, limit - i.rowHeight);
+  const still = clamped + i.rowHeight > limit + 0.5;
+  return still
+    ? { top: clamped, overlaps, hidden: true, action: "hidden" }
+    : { top: clamped, overlaps, hidden: false, action: "shifted" };
+}
+
+/** Width ceiling: left of the bar minus gap, relative to host.left. */
+export function barWidthCeiling(host: Box, bar: Box | null): number | null {
+  return bar ? bar.left - BAR_GAP - host.left : null;
+}
+
+/** How many leading tags fit fully in `avail` (tags ellipsize beyond that). */
+export function fullyVisibleTags(
+  avail: number,
+  tagWidths: number[],
+  gap = 4,
+): number {
+  let used = 0;
+  let n = 0;
+  for (const w of tagWidths) {
+    used += w + (n ? gap : 0);
+    if (used > avail) break;
+    n++;
+  }
+  return n;
+}

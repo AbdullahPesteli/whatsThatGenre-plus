@@ -1,5 +1,5 @@
 import { findTrackInfoHost } from "./host";
-import { anchorTop, placeRow, rowWidth } from "./layout";
+import { anchorTop, barWidthCeiling, placeRowGeo, rowWidth } from "./layout";
 import "./styles.scss";
 import { registerSettingsButton } from "./settings/panel";
 import { currentLang, loadSettings, tr } from "./settings/store";
@@ -26,7 +26,7 @@ let cachedGenres: string[] = [];
 let lastTrackKey = "";
 
 /** Upper bound for the genre row, in px. The real width is measured from the host (see layoutGenreContainer). */
-const MAX_GENRE_WIDTH = 340;
+const MAX_GENRE_WIDTH = 640;
 const MIN_GENRE_WIDTH = 120;
 
 let hasWarnedAboutMissingHost = false;
@@ -303,8 +303,13 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
   const limitRight = widget
     ? widget.getBoundingClientRect().right
     : hostRect.right;
+  const barEl = document.querySelector('[data-testid="playback-progressbar"]');
+  const barRect = barEl ? barEl.getBoundingClientRect() : null;
+  const ceiling = barWidthCeiling(hostRect, barRect);
   const available = Math.floor(
-    Math.max(hostRect.width, limitRight - hostRect.left),
+    ceiling !== null
+      ? ceiling
+      : Math.max(hostRect.width, limitRight - hostRect.left),
   );
   const badgeEl = genreContainer.querySelector(
     ".genre-source-badge",
@@ -328,10 +333,7 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
   genreContainer.style.top = `${defaultTop}px`;
 
   const rowHeight = genreContainer.offsetHeight;
-  const bar = document.querySelector('[data-testid="playback-progressbar"]');
-  const barTop = bar
-    ? bar.getBoundingClientRect().top
-    : Number.POSITIVE_INFINITY;
+  const barTop = barRect ? barRect.top : Number.POSITIVE_INFINITY;
   let clipBottom = Number.POSITIVE_INFINITY;
   for (
     let el = host.parentElement;
@@ -343,13 +345,18 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
       break;
     }
   }
-  const placed = placeRow({
-    hostHeight: defaultTop,
-    hostTop: parentTop,
+  const geo = placeRowGeo({
+    host: hostRect,
+    bar: barRect,
     rowHeight,
-    barTop,
     clipBottom,
   });
+  const placed = {
+    top: geo.top - parentTop,
+    hidden: geo.hidden,
+    action: geo.action,
+    overlaps: geo.overlaps,
+  };
   console.info("[WTG] layout", {
     height: rowHeight,
     top: placed.top,

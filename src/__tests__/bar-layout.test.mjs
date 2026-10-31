@@ -109,3 +109,60 @@ test("bar-layout K3: no icons + Menu.Item -> Menu.Item; nothing -> no throw + co
   }
   assert.deepEqual(logs, ["[WTG] settings button: no API"]);
 });
+
+// ---- geo-layout (measured Spotify 1.2.74 rects) ----
+const B = (x, y, w, h) => ({ left: x, top: y, right: x + w, bottom: y + h });
+const HOST = B(88, 1157, 169, 36);
+const BAR = B(553, 1189, 534, 12);
+
+test("geo A: host 169x36 + bar 534x12 no horizontal overlap -> top 1195, width 457, visible", () => {
+  const p = layout.placeRowGeo({ host: HOST, bar: BAR, rowHeight: 17 });
+  assert.equal(p.overlaps, false);
+  assert.equal(p.top, 1195);
+  assert.equal(p.hidden, false);
+  assert.equal(layout.barWidthCeiling(HOST, BAR), 457);
+  const w = layout.rowWidth(457, 40, 120, 640).width;
+  assert.equal(w, 457);
+});
+
+test("geo B: bar overlaps horizontally and vertically -> clamped up, visible", () => {
+  const bar = B(100, 1189, 534, 12);
+  const p = layout.placeRowGeo({ host: HOST, bar, rowHeight: 17 });
+  assert.equal(p.overlaps, true);
+  assert.ok(p.top < 1195);
+  assert.equal(p.hidden, false);
+  assert.equal(p.action, "shifted");
+});
+
+test("geo C: still colliding after clamp -> hidden", () => {
+  const bar = B(100, 1160, 534, 12);
+  const p = layout.placeRowGeo({ host: HOST, bar, rowHeight: 30 });
+  assert.equal(p.overlaps, true);
+  assert.equal(p.hidden, true);
+  assert.equal(p.action, "hidden");
+});
+
+test("geo D: no bar -> top = host.bottom + 2, never hidden", () => {
+  const p = layout.placeRowGeo({ host: HOST, bar: null, rowHeight: 17 });
+  assert.equal(p.top, 1195);
+  assert.equal(p.overlaps, false);
+  assert.equal(p.hidden, false);
+  assert.equal(layout.barWidthCeiling(HOST, null), null);
+});
+
+test("geo E: 457px, badge + 5 long genres -> badge intact, >=3 tags fully readable", () => {
+  const badge = 44;
+  const { tagsWidth } = layout.rowWidth(457, badge, 120, 640);
+  assert.equal(tagsWidth, 413);
+  assert.ok(tagsWidth + badge <= 457);
+  const n = layout.fullyVisibleTags(tagsWidth, [90, 100, 85, 95, 110]);
+  assert.ok(n >= 3, `fully visible tags: ${n}`);
+});
+
+test("geo F: settings icon fallback chain (settings -> gear -> equalizer) and no throw", () => {
+  assert.equal(panel.pickSettingsIcon({ gear: "g", equalizer: "e" }), "g");
+  assert.equal(panel.pickSettingsIcon({ settings: "s", gear: "g" }), "s");
+  assert.equal(panel.pickSettingsIcon({ equalizer: "e" }), "e");
+  assert.doesNotThrow(() => panel.pickSettingsIcon({}));
+  assert.equal(panel.pickSettingsIcon(undefined), undefined);
+});
