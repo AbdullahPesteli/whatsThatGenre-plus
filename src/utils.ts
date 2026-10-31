@@ -6,6 +6,11 @@
  * Behaviour is preserved; see issue #2.
  */
 
+import {
+  getManualGenre,
+  completeSourceOrder,
+  type SourceId,
+} from "./settings/store";
 import { takeSlot, resetBudgets } from "./sources/budget";
 import {
   recordHealth,
@@ -123,7 +128,7 @@ export const CACHE_MIN_CONFIDENCE = 0.95;
 
 export type GenreResult = {
   genres: string[];
-  source: "Discogs" | "MusicBrainz" | "Apple Music";
+  source: "Discogs" | "MusicBrainz" | "Apple Music" | "manual";
   /** 0..1; low-confidence results are shown but never cached. */
   confidence: number;
 };
@@ -134,6 +139,8 @@ export type TrackQuery = {
   album: string;
   durationMs: number;
   artistId?: string;
+  /** Spotify track URI; key for manual genres. */
+  uri?: string;
 };
 
 /** User-visible lookup state (cache v2 state machine). */
@@ -392,6 +399,8 @@ export type LookupDeps = {
   force?: boolean;
   /** Extension version stamped on records; negative records of other versions are dropped. */
   appVersion?: string;
+  /** Source priority from settings; partial/invalid lists are completed with defaults. */
+  sourceOrder?: readonly string[];
 };
 
 export type FetchOutcome =
@@ -1028,9 +1037,16 @@ async function network(
   deps: LookupDeps,
 ): Promise<NetResult> {
   const probe: Probe = { answered: 0, failed: 0, typeErrors: 0, schema: 0 };
-  let result = await lookupDiscogs(track, deps, probe);
-  if (!result) result = await lookupMusicBrainz(track, deps, probe);
-  if (!result) result = await lookupApple(track, deps, probe);
+  const steps: Record<SourceId, () => Promise<GenreResult | undefined>> = {
+    discogs: () => lookupDiscogs(track, deps, probe),
+    musicbrainz: () => lookupMusicBrainz(track, deps, probe),
+    itunes: () => lookupApple(track, deps, probe),
+  };
+  let result: GenreResult | undefined;
+  for (const id of completeSourceOrder(deps.sourceOrder)) {
+    result = await steps[id]();
+    if (result) break;
+  }
   if (result) return { kind: "found", result };
   // schema errors are their own class: never written to the negative cache
   if (probe.failed > 0 || probe.schema > 0)
@@ -1069,6 +1085,16 @@ export async function lookupGenres(
   track: TrackQuery,
   deps: LookupDeps,
 ): Promise<LookupOutcome> {
+  // A manual genre always wins and is never written to / overwritten by the cache.
+  const manual = getManualGenre(deps.storage, track.uri);
+  if (manual)
+    return {
+      status: "ok",
+      result: { genres: [manual], source: "manual", confidence: 1 },
+      cached: false,
+      state: "fresh",
+    };
+
   const key = cacheKeyFor(track.artist, track.title);
   const now = (deps.now ?? Date.now)();
   const appVersion = deps.appVersion ?? EXTENSION_VERSION;
