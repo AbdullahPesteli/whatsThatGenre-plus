@@ -8,33 +8,44 @@
  */
 
 declare namespace Spicetify {
-	type PlayerTrack = {
-		name?: string;
-		uri: string;
-		duration?: { milliseconds: number };
-		artists?: { name: string }[];
-		album?: { name: string };
-		metadata: Record<string, any>;
-	};
+  type PlayerTrack = {
+    name?: string;
+    uri: string;
+    duration?: { milliseconds: number };
+    artists?: { name: string }[];
+    album?: { name: string };
+    metadata: Record<string, any>;
+  };
 
-	interface PlayerData {
-		item?: PlayerTrack;
-	}
+  interface PlayerData {
+    item?: PlayerTrack;
+  }
 
-	namespace Player {
-		function getData(): PlayerData;
-		const data: PlayerData;
-		function addEventListener(event: string, handler: () => void | Promise<void>): void;
-	}
+  namespace Player {
+    function getData(): PlayerData;
+    const data: PlayerData;
+    function addEventListener(
+      event: string,
+      handler: () => void | Promise<void>,
+    ): void;
+  }
 
-	function showNotification(message: string, isError?: boolean, durationMs?: number): void;
+  function showNotification(
+    message: string,
+    isError?: boolean,
+    durationMs?: number,
+  ): void;
 
-	namespace PopupModal {
-		function display(options: { title?: string; content: unknown; isLarge?: boolean }): void;
-		function hide(): void;
-	}
+  namespace PopupModal {
+    function display(options: {
+      title?: string;
+      content: unknown;
+      isLarge?: boolean;
+    }): void;
+    function hide(): void;
+  }
 
-	namespace CosmosAsync {
-		function get<T = unknown>(url: string): Promise<T>;
-	}
+  namespace CosmosAsync {
+    function get<T = unknown>(url: string): Promise<T>;
+  }
 }

@@ -1,14 +1,14 @@
 import "./styles.scss";
 import type { MusicalystData } from "./types/musicalyst";
 import {
-	MSG_LOOKING,
-	MSG_NOT_FOUND,
-	camelize,
-	debounce,
-	lookupGenres,
-	replaceAll,
-	waitForElement,
-	type GenreResult,
+  MSG_LOOKING,
+  MSG_NOT_FOUND,
+  camelize,
+  debounce,
+  lookupGenres,
+  replaceAll,
+  waitForElement,
+  type GenreResult,
 } from "./utils";
 
 // https://developer.spotify.com/documentation/web-api
@@ -32,113 +32,133 @@ let disposed = false;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 export default async function main() {
-	teardownPrevious?.();
-	teardownPrevious = undefined;
-	disposed = false;
+  teardownPrevious?.();
+  teardownPrevious = undefined;
+  disposed = false;
 
-	while (!Spicetify?.Player || !Spicetify?.CosmosAsync || !Spicetify?.showNotification) {
-		await new Promise((resolve) => setTimeout(resolve, 100));
-	}
-	if (disposed) return;
+  while (
+    !Spicetify?.Player ||
+    !Spicetify?.CosmosAsync ||
+    !Spicetify?.showNotification
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  if (disposed) return;
 
-	const genreContainer = document.createElement("div");
-	genreContainer.className = "main-trackInfo-genres";
+  const genreContainer = document.createElement("div");
+  genreContainer.className = "main-trackInfo-genres";
 
-	const refresh = async () => {
-		if (disposed) return;
-		try {
-			await injectGenres(genreContainer);
-		} catch (error) {
-			console.error("[HermesGenre] render failed", error);
-		}
-	};
+  const refresh = async () => {
+    if (disposed) return;
+    try {
+      await injectGenres(genreContainer);
+    } catch (error) {
+      console.error("[HermesGenre] render failed", error);
+    }
+  };
 
-	const onResize = debounce(() => {
-		if (!disposed && genreContainer.parentElement) layoutGenreContainer(genreContainer);
-	});
+  const onResize = debounce(() => {
+    if (!disposed && genreContainer.parentElement)
+      layoutGenreContainer(genreContainer);
+  });
 
-	Spicetify.Player.addEventListener("songchange", refresh);
-	window.addEventListener("resize", onResize);
+  Spicetify.Player.addEventListener("songchange", refresh);
+  window.addEventListener("resize", onResize);
 
-	// Spotify can restore a playing track without emitting songchange.
-	const restoreTimer = setTimeout(refresh, 1200);
+  // Spotify can restore a playing track without emitting songchange.
+  const restoreTimer = setTimeout(refresh, 1200);
 
-	teardownPrevious = () => {
-		disposed = true;
-		// Present at runtime (spicetify-cli Player) but missing from the bundled typings.
-		(Spicetify.Player as unknown as { removeEventListener(t: string, f: () => void): void }).removeEventListener("songchange", refresh);
-		window.removeEventListener("resize", onResize);
-		onResize.cancel();
-		clearTimeout(restoreTimer);
-		if (retryTimer) clearTimeout(retryTimer);
-		retryTimer = undefined;
-		genreContainer.remove();
-		if (hostRestore) {
-			hostRestore.host.style.position = hostRestore.position;
-			hostRestore = undefined;
-		}
-	};
+  teardownPrevious = () => {
+    disposed = true;
+    // Present at runtime (spicetify-cli Player) but missing from the bundled typings.
+    (
+      Spicetify.Player as unknown as {
+        removeEventListener(t: string, f: () => void): void;
+      }
+    ).removeEventListener("songchange", refresh);
+    window.removeEventListener("resize", onResize);
+    onResize.cancel();
+    clearTimeout(restoreTimer);
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = undefined;
+    genreContainer.remove();
+    if (hostRestore) {
+      hostRestore.host.style.position = hostRestore.position;
+      hostRestore = undefined;
+    }
+  };
 
-	await refresh();
+  await refresh();
 }
 
 async function injectGenres(genreContainer: HTMLDivElement) {
-	if (retryTimer) clearTimeout(retryTimer);
-	retryTimer = undefined;
+  if (retryTimer) clearTimeout(retryTimer);
+  retryTimer = undefined;
 
-	const data = Spicetify.Player.data;
-	if (!data?.item) {
-		if (!disposed) retryTimer = setTimeout(() => injectGenres(genreContainer), 1000);
-		return;
-	}
+  const data = Spicetify.Player.data;
+  if (!data?.item) {
+    if (!disposed)
+      retryTimer = setTimeout(() => injectGenres(genreContainer), 1000);
+    return;
+  }
 
-	const metadata = data.item.metadata || ({} as Spicetify.PlayerTrack["metadata"]);
-	const title = data.item.name || metadata.title || "";
-	let artist = data.item.artists?.[0]?.name || metadata.artist_name || metadata.album_artist_name || "";
-	if (!artist && String(metadata.title || "").includes(" • ")) {
-		artist = String(metadata.title).split(" • ").at(-1) || "";
-	}
-	const album = data.item.album?.name || metadata.album_title || "";
-	const durationMs = data.item.duration?.milliseconds || Number(metadata.duration || 0);
-	const artistId = metadata.artist_uri?.split(":")[2] || "";
-	const trackKey = `${data.item.uri}|${title}|${artist}|${album}`;
-	lastTrackKey = trackKey;
+  const metadata =
+    data.item.metadata || ({} as Spicetify.PlayerTrack["metadata"]);
+  const title = data.item.name || metadata.title || "";
+  let artist =
+    data.item.artists?.[0]?.name ||
+    metadata.artist_name ||
+    metadata.album_artist_name ||
+    "";
+  if (!artist && String(metadata.title || "").includes(" • ")) {
+    artist = String(metadata.title).split(" • ").at(-1) || "";
+  }
+  const album = data.item.album?.name || metadata.album_title || "";
+  const durationMs =
+    data.item.duration?.milliseconds || Number(metadata.duration || 0);
+  const artistId = metadata.artist_uri?.split(":")[2] || "";
+  const trackKey = `${data.item.uri}|${title}|${artist}|${album}`;
+  lastTrackKey = trackKey;
 
-	genreContainer.className = "main-trackInfo-genres";
-	genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
-	await mountGenreContainer(genreContainer);
+  genreContainer.className = "main-trackInfo-genres";
+  genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
+  await mountGenreContainer(genreContainer);
 
-	const outcome = await lookupGenres(
-		{ artistId, title, artist, album, durationMs },
-		{ fetch: (url, init) => fetch(url, init), storage: safeStorage() }
-	);
-	if (disposed || lastTrackKey !== trackKey) return;
+  const outcome = await lookupGenres(
+    { artistId, title, artist, album, durationMs },
+    { fetch: (url, init) => fetch(url, init), storage: safeStorage() },
+  );
+  if (disposed || lastTrackKey !== trackKey) return;
 
-	if (outcome.status === "ok") {
-		cachedGenres = outcome.result.genres;
-		await renderGenres(genreContainer, outcome.result.genres, outcome.result.source);
-		return;
-	}
+  if (outcome.status === "ok") {
+    cachedGenres = outcome.result.genres;
+    await renderGenres(
+      genreContainer,
+      outcome.result.genres,
+      outcome.result.source,
+    );
+    return;
+  }
 
-	cachedGenres = [];
-	if (outcome.status === "error") {
-		genreContainer.innerHTML = "";
-		const span = document.createElement("span");
-		span.className = "genre-error";
-		span.textContent = outcome.message;
-		genreContainer.appendChild(span);
-	} else {
-		genreContainer.innerHTML = `<span class="genre-unavailable">${MSG_NOT_FOUND}</span>`;
-	}
-	layoutGenreContainer(genreContainer);
+  cachedGenres = [];
+  if (outcome.status === "error") {
+    genreContainer.innerHTML = "";
+    const span = document.createElement("span");
+    span.className = "genre-error";
+    span.textContent = outcome.message;
+    genreContainer.appendChild(span);
+  } else {
+    genreContainer.innerHTML = `<span class="genre-unavailable">${MSG_NOT_FOUND}</span>`;
+  }
+  layoutGenreContainer(genreContainer);
 }
 
 function safeStorage() {
-	try {
-		return window.localStorage;
-	} catch {
-		return undefined;
-	}
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -150,30 +170,40 @@ function safeStorage() {
  * this working across client updates.
  */
 function findTrackInfoHost(): Element | null {
-	const scope =
-		document.querySelector('[data-testid="now-playing-widget"]') ??
-		document.querySelector('[data-testid="now-playing-bar"]');
-	// Neither marker present: refuse to guess. Never fall back to document.body.
-	if (!scope) return null;
+  const scope =
+    document.querySelector('[data-testid="now-playing-widget"]') ??
+    document.querySelector('[data-testid="now-playing-bar"]');
+  // Neither marker present: refuse to guess. Never fall back to document.body.
+  if (!scope) return null;
 
-	// Preferred: the container holding both the track and the artist links.
-	const trackLink = scope.querySelector<HTMLAnchorElement>('a[href*="/track/"]');
-	const artistLink = scope.querySelector<HTMLAnchorElement>('a[href*="/artist/"]');
-	if (trackLink && artistLink) {
-		let node: Element = trackLink;
-		while (node.parentElement && node.parentElement !== scope && !node.parentElement.contains(artistLink)) {
-			node = node.parentElement;
-		}
-		return node.parentElement && node.parentElement !== scope ? node.parentElement : node;
-	}
+  // Preferred: the container holding both the track and the artist links.
+  const trackLink =
+    scope.querySelector<HTMLAnchorElement>('a[href*="/track/"]');
+  const artistLink = scope.querySelector<HTMLAnchorElement>(
+    'a[href*="/artist/"]',
+  );
+  if (trackLink && artistLink) {
+    let node: Element = trackLink;
+    while (
+      node.parentElement &&
+      node.parentElement !== scope &&
+      !node.parentElement.contains(artistLink)
+    ) {
+      node = node.parentElement;
+    }
+    return node.parentElement && node.parentElement !== scope
+      ? node.parentElement
+      : node;
+  }
 
-	// Fallback: the first child that is not the cover slot and carries text.
-	for (const child of Array.from(scope.children)) {
-		if ((child.getAttribute("data-testid") ?? "").startsWith("CoverSlot")) continue;
-		if ((child.textContent ?? "").trim()) return child;
-	}
+  // Fallback: the first child that is not the cover slot and carries text.
+  for (const child of Array.from(scope.children)) {
+    if ((child.getAttribute("data-testid") ?? "").startsWith("CoverSlot"))
+      continue;
+    if ((child.textContent ?? "").trim()) return child;
+  }
 
-	return scope;
+  return scope;
 }
 
 /**
@@ -183,34 +213,40 @@ function findTrackInfoHost(): Element | null {
  * measurements, see layoutGenreContainer.
  */
 async function mountGenreContainer(genreContainer: HTMLDivElement) {
-	const host = (await waitForElement(findTrackInfoHost, 5000)) as HTMLElement | null;
-	if (!host) {
-		if (!hasWarnedAboutMissingHost) {
-			hasWarnedAboutMissingHost = true;
-			Spicetify.showNotification("What's That Genre? Plus: could not find the now-playing track info.", true);
-		}
-		return;
-	}
-	if (disposed) return;
+  const host = (await waitForElement(
+    findTrackInfoHost,
+    5000,
+  )) as HTMLElement | null;
+  if (!host) {
+    if (!hasWarnedAboutMissingHost) {
+      hasWarnedAboutMissingHost = true;
+      Spicetify.showNotification(
+        "What's That Genre? Plus: could not find the now-playing track info.",
+        true,
+      );
+    }
+    return;
+  }
+  if (disposed) return;
 
-	if (genreContainer.parentElement !== host) {
-		// Undo a previous host's forced positioning before moving on.
-		if (hostRestore && hostRestore.host !== host) {
-			hostRestore.host.style.position = hostRestore.position;
-			hostRestore = undefined;
-		}
-		if (getComputedStyle(host).position === "static") {
-			if (!hostRestore) hostRestore = { host, position: host.style.position };
-			host.style.position = "relative";
-		}
-		genreContainer.style.position = "absolute";
-		genreContainer.style.left = "0";
-		genreContainer.style.flex = "";
-		genreContainer.style.order = "";
-		genreContainer.style.margin = "0";
-		host.appendChild(genreContainer);
-	}
-	layoutGenreContainer(genreContainer);
+  if (genreContainer.parentElement !== host) {
+    // Undo a previous host's forced positioning before moving on.
+    if (hostRestore && hostRestore.host !== host) {
+      hostRestore.host.style.position = hostRestore.position;
+      hostRestore = undefined;
+    }
+    if (getComputedStyle(host).position === "static") {
+      if (!hostRestore) hostRestore = { host, position: host.style.position };
+      host.style.position = "relative";
+    }
+    genreContainer.style.position = "absolute";
+    genreContainer.style.left = "0";
+    genreContainer.style.flex = "";
+    genreContainer.style.order = "";
+    genreContainer.style.margin = "0";
+    host.appendChild(genreContainer);
+  }
+  layoutGenreContainer(genreContainer);
 }
 
 /**
@@ -222,238 +258,285 @@ async function mountGenreContainer(genreContainer: HTMLDivElement) {
  *    ancestor) it is hidden and the genres go to the host's tooltip instead.
  */
 function layoutGenreContainer(genreContainer: HTMLDivElement) {
-	const host = genreContainer.parentElement as HTMLElement | null;
-	if (!host) return;
+  const host = genreContainer.parentElement as HTMLElement | null;
+  if (!host) return;
 
-	const hostRect = host.getBoundingClientRect();
-	const widget = host.closest('[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]');
-	const limitRight = widget ? widget.getBoundingClientRect().right : hostRect.right;
-	const available = Math.floor(Math.max(hostRect.width, limitRight - hostRect.left));
-	const width = Math.min(MAX_GENRE_WIDTH, Math.max(MIN_GENRE_WIDTH, available));
-	genreContainer.style.width = `${width}px`;
-	genreContainer.style.maxWidth = `${width}px`;
-	genreContainer.style.top = `${host.offsetHeight}px`;
-	genreContainer.style.visibility = "";
+  const hostRect = host.getBoundingClientRect();
+  const widget = host.closest(
+    '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
+  );
+  const limitRight = widget
+    ? widget.getBoundingClientRect().right
+    : hostRect.right;
+  const available = Math.floor(
+    Math.max(hostRect.width, limitRight - hostRect.left),
+  );
+  const width = Math.min(MAX_GENRE_WIDTH, Math.max(MIN_GENRE_WIDTH, available));
+  genreContainer.style.width = `${width}px`;
+  genreContainer.style.maxWidth = `${width}px`;
+  genreContainer.style.top = `${host.offsetHeight}px`;
+  genreContainer.style.visibility = "";
 
-	const rowHeight = genreContainer.offsetHeight;
-	const rowTop = hostRect.bottom;
-	const bar = document.querySelector('[data-testid="playback-progressbar"]');
-	const barTop = bar ? bar.getBoundingClientRect().top : Number.POSITIVE_INFINITY;
-	let clipped = false;
-	for (let el = host.parentElement; el && el !== document.body; el = el.parentElement) {
-		if (getComputedStyle(el).overflow !== "visible") {
-			clipped = rowTop + rowHeight > el.getBoundingClientRect().bottom + 0.5;
-			break;
-		}
-	}
-	const overlapsBar = rowTop + rowHeight > barTop + 0.5;
-	if (overlapsBar || clipped) {
-		genreContainer.style.visibility = "hidden";
-		host.title = genreContainer.textContent || "";
-	} else if (host.title && host.title === (genreContainer.textContent || "")) {
-		host.removeAttribute("title");
-	}
-	updateOverflow(genreContainer);
+  const rowHeight = genreContainer.offsetHeight;
+  const rowTop = hostRect.bottom;
+  const bar = document.querySelector('[data-testid="playback-progressbar"]');
+  const barTop = bar
+    ? bar.getBoundingClientRect().top
+    : Number.POSITIVE_INFINITY;
+  let clipped = false;
+  for (
+    let el = host.parentElement;
+    el && el !== document.body;
+    el = el.parentElement
+  ) {
+    if (getComputedStyle(el).overflow !== "visible") {
+      clipped = rowTop + rowHeight > el.getBoundingClientRect().bottom + 0.5;
+      break;
+    }
+  }
+  const overlapsBar = rowTop + rowHeight > barTop + 0.5;
+  if (overlapsBar || clipped) {
+    genreContainer.style.visibility = "hidden";
+    host.title = genreContainer.textContent || "";
+  } else if (host.title && host.title === (genreContainer.textContent || "")) {
+    host.removeAttribute("title");
+  }
+  updateOverflow(genreContainer);
 }
 
 /** Marquee: clientWidth is the measured visible width (set above), so scrollWidth-clientWidth is the real overflow. */
 function updateOverflow(genreContainer: HTMLDivElement) {
-	try {
-		const overflowPx = genreContainer.scrollWidth - genreContainer.clientWidth;
-		const overflow = overflowPx > 2;
-		genreContainer.classList.toggle("genres-overflow", overflow);
-		if (overflow) {
-			genreContainer.style.setProperty("--genres-scroll", `${overflowPx + 12}px`);
-			genreContainer.title = genreContainer.textContent || "";
-		} else {
-			genreContainer.style.removeProperty("--genres-scroll");
-		}
-	} catch (error) {
-		console.warn("[HermesGenre] overflow check failed", error);
-	}
+  try {
+    const overflowPx = genreContainer.scrollWidth - genreContainer.clientWidth;
+    const overflow = overflowPx > 2;
+    genreContainer.classList.toggle("genres-overflow", overflow);
+    if (overflow) {
+      genreContainer.style.setProperty(
+        "--genres-scroll",
+        `${overflowPx + 12}px`,
+      );
+      genreContainer.title = genreContainer.textContent || "";
+    } else {
+      genreContainer.style.removeProperty("--genres-scroll");
+    }
+  } catch (error) {
+    console.warn("[HermesGenre] overflow check failed", error);
+  }
 }
 
 async function renderGenres(
-	genreContainer: HTMLDivElement,
-	genres: string[],
-	source: GenreResult["source"]
+  genreContainer: HTMLDivElement,
+  genres: string[],
+  source: GenreResult["source"],
 ) {
-	genreContainer.className = "main-trackInfo-genres";
-	genreContainer.innerHTML = "";
+  genreContainer.className = "main-trackInfo-genres";
+  genreContainer.innerHTML = "";
 
-	const tooltip = source === "Discogs" ? "Source: Discogs" : "Source: Apple Music";
-	for (const genre of genres) {
-		const genreTag = document.createElement("a");
-		genreTag.className = "TextElement-marginal-textSubdued-text encore-text-marginal genre-tag";
-		genreTag.textContent = camelize(genre);
-		genreTag.setAttribute("genre", genre);
-		genreTag.title = tooltip;
-		genreTag.addEventListener("click", () => clickGenreTag(genre));
-		genreContainer.appendChild(genreTag);
-	}
+  const tooltip =
+    source === "Discogs" ? "Source: Discogs" : "Source: Apple Music";
+  for (const genre of genres) {
+    const genreTag = document.createElement("a");
+    genreTag.className =
+      "TextElement-marginal-textSubdued-text encore-text-marginal genre-tag";
+    genreTag.textContent = camelize(genre);
+    genreTag.setAttribute("genre", genre);
+    genreTag.title = tooltip;
+    genreTag.addEventListener("click", () => clickGenreTag(genre));
+    genreContainer.appendChild(genreTag);
+  }
 
-	const badge = document.createElement("span");
-	badge.className = "genre-source-badge";
-	badge.textContent = source === "Discogs" ? "DISCOGS" : "TRACK";
-	badge.title = source === "Discogs"
-		? "Source: Discogs (genre + style)"
-		: "Not found on Discogs; matched on Apple Music";
-	genreContainer.appendChild(badge);
+  const badge = document.createElement("span");
+  badge.className = "genre-source-badge";
+  badge.textContent = source === "Discogs" ? "DISCOGS" : "TRACK";
+  badge.title =
+    source === "Discogs"
+      ? "Source: Discogs (genre + style)"
+      : "Not found on Discogs; matched on Apple Music";
+  genreContainer.appendChild(badge);
 
-	await mountGenreContainer(genreContainer);
-	requestAnimationFrame(() => {
-		if (!disposed) layoutGenreContainer(genreContainer);
-	});
+  await mountGenreContainer(genreContainer);
+  requestAnimationFrame(() => {
+    if (!disposed) layoutGenreContainer(genreContainer);
+  });
 }
 
 async function clickGenreTag(genre: string) {
-	// Show Skeleton while loading
-	const skeleton = document.createElement("div");
-	skeleton.className = "genre-description-container";
-	skeleton.innerHTML = /* HTML */ `
-		<div class="skeleton" style="height: 144px;"></div>
-		<div class="skeleton" style="height: 86px;"></div>
-		<div class="skeleton" style="height: calc(75vh - 375px);"></div>
-	`;
+  // Show Skeleton while loading
+  const skeleton = document.createElement("div");
+  skeleton.className = "genre-description-container";
+  skeleton.innerHTML = /* HTML */ `
+    <div class="skeleton" style="height: 144px;"></div>
+    <div class="skeleton" style="height: 86px;"></div>
+    <div class="skeleton" style="height: calc(75vh - 375px);"></div>
+  `;
 
-	Spicetify.PopupModal.display({
-		title: camelize(genre),
-		content: skeleton,
-		isLarge: true,
-	});
+  Spicetify.PopupModal.display({
+    title: camelize(genre),
+    content: skeleton,
+    isLarge: true,
+  });
 
-	const playlist = await fetchSpotifyPlaylistURI(genre);
-	const data = await fetchMusicalyst(genre);
+  const playlist = await fetchSpotifyPlaylistURI(genre);
+  const data = await fetchMusicalyst(genre);
 
-	if (!data || !playlist) {
-		Spicetify.PopupModal.hide();
-		return;
-	}
+  if (!data || !playlist) {
+    Spicetify.PopupModal.hide();
+    return;
+  }
 
-	// Check if the skeleton still exist to display the content
-	if (document.querySelector("div.genre-description-container")) {
-		Spicetify.PopupModal.display({
-			title: camelize(genre),
-			content: await createContent(data, playlist),
-			isLarge: true,
-		});
-	}
+  // Check if the skeleton still exist to display the content
+  if (document.querySelector("div.genre-description-container")) {
+    Spicetify.PopupModal.display({
+      title: camelize(genre),
+      content: await createContent(data, playlist),
+      isLarge: true,
+    });
+  }
 }
 
-async function fetchMusicalyst(genre: string): Promise<MusicalystData | undefined> {
-	const escaped = replaceAll(replaceAll(genre, " ", "-"), ":", "");
-	const url = `https://lucasoe.github.io/spicetify-genres/api/${escaped}.json`;
-	try {
-		const initialRequest = await fetch(url);
-		const response = await initialRequest.json();
-		return response.pageProps;
-	} catch {
-		Spicetify.showNotification(`Couldn't find genre on Musicalyst: ${camelize(genre)}`, true);
-		return;
-	}
+async function fetchMusicalyst(
+  genre: string,
+): Promise<MusicalystData | undefined> {
+  const escaped = replaceAll(replaceAll(genre, " ", "-"), ":", "");
+  const url = `https://lucasoe.github.io/spicetify-genres/api/${escaped}.json`;
+  try {
+    const initialRequest = await fetch(url);
+    const response = await initialRequest.json();
+    return response.pageProps;
+  } catch {
+    Spicetify.showNotification(
+      `Couldn't find genre on Musicalyst: ${camelize(genre)}`,
+      true,
+    );
+    return;
+  }
 }
 
-async function fetchSpotifyPlaylistURI(genre: string): Promise<SpotifyApi.SinglePlaylistResponse | undefined> {
-	const name = `The Sound of ${camelize(genre)}`;
-	// The limit parameter maximum value has been reduced from 50 to 10
-	// https://developer.spotify.com/documentation/web-api/references/changes/february-2026
-	const searchResponse: SpotifyApi.PlaylistSearchResponse = await Spicetify.CosmosAsync.get(
-		`https://api.spotify.com/v1/search?q=${encodeURIComponent(name)}&type=playlist&limit=10`
-	);
+async function fetchSpotifyPlaylistURI(
+  genre: string,
+): Promise<SpotifyApi.SinglePlaylistResponse | undefined> {
+  const name = `The Sound of ${camelize(genre)}`;
+  // The limit parameter maximum value has been reduced from 50 to 10
+  // https://developer.spotify.com/documentation/web-api/references/changes/february-2026
+  const searchResponse: SpotifyApi.PlaylistSearchResponse =
+    await Spicetify.CosmosAsync.get(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(name)}&type=playlist&limit=10`,
+    );
 
-	for (const item of searchResponse.playlists.items) {
-		if (item.owner.id === "thesoundsofspotify" && item.name.toLowerCase() === name.toLowerCase()) {
-			return Spicetify.CosmosAsync.get(`https://api.spotify.com/v1/playlists/${item.id}`);
-		}
-	}
+  for (const item of searchResponse.playlists.items) {
+    if (
+      item.owner.id === "thesoundsofspotify" &&
+      item.name.toLowerCase() === name.toLowerCase()
+    ) {
+      return Spicetify.CosmosAsync.get(
+        `https://api.spotify.com/v1/playlists/${item.id}`,
+      );
+    }
+  }
 
-	Spicetify.showNotification(`Couldn't find playlist: ${name}`, true);
-	return;
+  Spicetify.showNotification(`Couldn't find playlist: ${name}`, true);
+  return;
 }
 
 async function createContent(
-	data: MusicalystData,
-	playlist: SpotifyApi.PlaylistObjectFull | undefined
+  data: MusicalystData,
+  playlist: SpotifyApi.PlaylistObjectFull | undefined,
 ): Promise<HTMLDivElement> {
-	const contentContainer = document.createElement("div");
-	contentContainer.className = "genre-description-container";
-	contentContainer.appendChild(await createDescription(data));
-	contentContainer.appendChild(await createRelated(data));
-	if (playlist) contentContainer.appendChild(await createPlaylist(playlist));
-	contentContainer.appendChild(await createTopArtists(data));
-	return contentContainer;
+  const contentContainer = document.createElement("div");
+  contentContainer.className = "genre-description-container";
+  contentContainer.appendChild(await createDescription(data));
+  contentContainer.appendChild(await createRelated(data));
+  if (playlist) contentContainer.appendChild(await createPlaylist(playlist));
+  contentContainer.appendChild(await createTopArtists(data));
+  return contentContainer;
 }
 
-async function createDescription(data: MusicalystData): Promise<HTMLDivElement> {
-	const descriptionContainer = document.createElement("div");
-	descriptionContainer.innerHTML = `<p>${data.genresAdvancedInfo.description}</p>`;
-	return descriptionContainer;
+async function createDescription(
+  data: MusicalystData,
+): Promise<HTMLDivElement> {
+  const descriptionContainer = document.createElement("div");
+  descriptionContainer.innerHTML = `<p>${data.genresAdvancedInfo.description}</p>`;
+  return descriptionContainer;
 }
 
 async function createRelated(data: MusicalystData): Promise<HTMLDivElement> {
-	const genreContainer = document.createElement("div");
-	genreContainer.className = "related-genres-container";
-	data.relatedGenres.forEach((relatedGenre) => {
-		const genreTag = document.createElement("div");
-		genreTag.className = "TextElement-marginal-textSubdued-text encore-text-marginal genre-tag";
-		genreTag.innerHTML = camelize(relatedGenre.genre);
-		genreTag.onclick = async () => {
-			await new Promise((resolve) => setTimeout(resolve, 100));
-			await clickGenreTag(relatedGenre.genre);
-		};
+  const genreContainer = document.createElement("div");
+  genreContainer.className = "related-genres-container";
+  data.relatedGenres.forEach((relatedGenre) => {
+    const genreTag = document.createElement("div");
+    genreTag.className =
+      "TextElement-marginal-textSubdued-text encore-text-marginal genre-tag";
+    genreTag.innerHTML = camelize(relatedGenre.genre);
+    genreTag.onclick = async () => {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await clickGenreTag(relatedGenre.genre);
+    };
 
-		genreContainer.appendChild(genreTag);
-	});
+    genreContainer.appendChild(genreTag);
+  });
 
-	return genreContainer;
+  return genreContainer;
 }
 
-async function createPlaylist(playlist: SpotifyApi.PlaylistObjectFull): Promise<HTMLDivElement> {
-	const playlistContainer = document.createElement("div");
-	playlistContainer.innerHTML = /* HTML */ `
-		<a href=${playlist.uri} onclick="Spicetify.PopupModal.hide()" class="playlist-container">
-			<img src="${playlist.images[0].url}" class="playlist-image" />
-			<div class="playlist-description">
-				<h1 class="playlist-title">${playlist.name}</h1>
-				<p class="playlist-stats">
-					${playlist.owner.display_name} • ${playlist.followers.total} likes • ${playlist.tracks?.total || 0} songs
-				</p>
-			</div>
-		</a>
-	`;
-	return playlistContainer;
+async function createPlaylist(
+  playlist: SpotifyApi.PlaylistObjectFull,
+): Promise<HTMLDivElement> {
+  const playlistContainer = document.createElement("div");
+  playlistContainer.innerHTML = /* HTML */ `
+    <a
+      href=${playlist.uri}
+      onclick="Spicetify.PopupModal.hide()"
+      class="playlist-container"
+    >
+      <img src="${playlist.images[0].url}" class="playlist-image" />
+      <div class="playlist-description">
+        <h1 class="playlist-title">${playlist.name}</h1>
+        <p class="playlist-stats">
+          ${playlist.owner.display_name} • ${playlist.followers.total} likes •
+          ${playlist.tracks?.total || 0} songs
+        </p>
+      </div>
+    </a>
+  `;
+  return playlistContainer;
 }
 
 async function createTopArtists(data: MusicalystData): Promise<HTMLDivElement> {
-	const artists = () => {
-		let result = "";
-		data.topArtists.forEach(async (artist) => {
-			const artistURI = `spotify:artist:${artist.id}`;
-			result += /* HTML */ `
-				<a href=${artistURI} onclick="Spicetify.PopupModal.hide()" class="main-card-card">
-					<div class="main-cardImage-imageWrapper">
-						<img
-							class="main-image-image main-cardImage-image"
-							draggable="false"
-							loading="lazy"
-							src="${artist.images[2].url}"
-						/>
-					</div>
-					<div class="main-cardHeader-text TypeElement-balladBold-textBase-type-paddingBottom_4px">
-						${artist.name}
-					</div>
-				</a>
-			`;
-		});
-		return result;
-	};
+  const artists = () => {
+    let result = "";
+    data.topArtists.forEach(async (artist) => {
+      const artistURI = `spotify:artist:${artist.id}`;
+      result += /* HTML */ `
+        <a
+          href=${artistURI}
+          onclick="Spicetify.PopupModal.hide()"
+          class="main-card-card"
+        >
+          <div class="main-cardImage-imageWrapper">
+            <img
+              class="main-image-image main-cardImage-image"
+              draggable="false"
+              loading="lazy"
+              src="${artist.images[2].url}"
+            />
+          </div>
+          <div
+            class="main-cardHeader-text TypeElement-balladBold-textBase-type-paddingBottom_4px"
+          >
+            ${artist.name}
+          </div>
+        </a>
+      `;
+    });
+    return result;
+  };
 
-	const topArtistsContainer = document.createElement("div");
-	topArtistsContainer.innerHTML = /* HTML */ `
-		<div class="description-container">
-			<h2 class="main-type-alto" as="h2">Top Artists</h2>
-			<div class="main-gridContainer-gridContainer">${artists()}</div>
-		</div>
-	`;
-	return topArtistsContainer;
+  const topArtistsContainer = document.createElement("div");
+  topArtistsContainer.innerHTML = /* HTML */ `
+    <div class="description-container">
+      <h2 class="main-type-alto" as="h2">Top Artists</h2>
+      <div class="main-gridContainer-gridContainer">${artists()}</div>
+    </div>
+  `;
+  return topArtistsContainer;
 }
