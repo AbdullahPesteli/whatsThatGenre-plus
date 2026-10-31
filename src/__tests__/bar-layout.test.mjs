@@ -54,7 +54,7 @@ test("bar-layout K2: wide badge never squeezed below MIN; max respected otherwis
 });
 test("bar-layout K2: css - badge flex-shrink 0, tags ellipsize", () => {
   const css = fs.readFileSync(path.join(here, "../styles.scss"), "utf8");
-  const badge = css.match(/\.genre-source-badge \{[^}]*\}/)[0];
+  const badge = css.match(/\n\.genre-source-badge \{[^}]*\}/)[0];
   const tag = css.match(/\n\.genre-tag \{[\s\S]*?\n\}/)[0];
   assert.match(badge, /flex: 0 0 auto/);
   assert.match(tag, /min-width: 0/);
