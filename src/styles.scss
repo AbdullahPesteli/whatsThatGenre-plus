@@ -1,21 +1,10 @@
-.main-nowPlayingWidget-trackInfo {
-	grid-template:
-		"pretitle pretitle"
-		"title title"
-		"badges subtitle"
-		"genres genres"
-		"quality quality" / auto 1fr;
-}
-
 .main-trackInfo-genres {
 	display: flex;
 	align-items: center;
 	flex-wrap: nowrap;
 	overflow: hidden;
 	max-width: 100%;
-	grid-area: genres;
 	gap: 0;
-	position: relative;
 
 	&.genres-overflow {
 		-webkit-mask-image: linear-gradient(90deg, #000 0, #000 86%, transparent 100%);

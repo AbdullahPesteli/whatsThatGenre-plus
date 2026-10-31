@@ -8,6 +8,11 @@ import { camelize, debounce, replaceAll, waitForElement } from "./utils";
 let cachedGenres: string[] = [];
 let lastTrackKey = "";
 
+/** Width of the genre list, in px. The byline column itself is only ~172px wide. */
+const GENRE_CONTAINER_WIDTH = 340;
+
+let hasWarnedAboutMissingHost = false;
+
 type GenreResult = {
 	genres: string[];
 	source: "Discogs" | "Apple Music";
@@ -278,9 +283,67 @@ function similarity(a: string, b: string): number {
 	return intersection / Math.max(aa.size, bb.size);
 }
 
+/**
+ * Locate the element the genre list should be attached to.
+ *
+ * The previous implementation waited for `.main-nowPlayingWidget-trackInfo`, a
+ * class that current Spotify releases no longer render, so it always timed out
+ * and the extension silently displayed nothing. Resolving structurally keeps
+ * this working across client updates.
+ */
+function findTrackInfoHost(): Element | null {
+	const scope =
+		document.querySelector('[data-testid="now-playing-widget"]') ??
+		document.querySelector('[data-testid="now-playing-bar"]') ??
+		document.body;
+
+	// Preferred: the container holding both the track and the artist links.
+	const trackLink = scope.querySelector<HTMLAnchorElement>('a[href*="/track/"]');
+	const artistLink = scope.querySelector<HTMLAnchorElement>('a[href*="/artist/"]');
+	if (trackLink && artistLink) {
+		let node: Element = trackLink;
+		while (node.parentElement && node.parentElement !== scope && !node.parentElement.contains(artistLink)) {
+			node = node.parentElement;
+		}
+		return node.parentElement && node.parentElement !== scope ? node.parentElement : node;
+	}
+
+	// Fallback: the first child that is not the cover slot and carries text.
+	for (const child of Array.from(scope.children)) {
+		if ((child.getAttribute("data-testid") ?? "").startsWith("CoverSlot")) continue;
+		if ((child.textContent ?? "").trim()) return child;
+	}
+
+	return scope;
+}
+
+/**
+ * The byline column is a grid, so a child added to it would trigger implicit
+ * placement into a new column and squeeze the title and artist to one character
+ * each. Taking the element out of flow avoids that, and behaves identically
+ * whether the host resolves to a grid, a flex row or a plain block.
+ */
 async function mountGenreContainer(genreContainer: HTMLDivElement) {
-	const infoContainer = await waitForElement(".main-nowPlayingWidget-trackInfo", 5000);
-	if (infoContainer && genreContainer.parentElement !== infoContainer) infoContainer.appendChild(genreContainer);
+	const host = await waitForElement(findTrackInfoHost, 5000);
+	if (!host) {
+		if (!hasWarnedAboutMissingHost) {
+			hasWarnedAboutMissingHost = true;
+			Spicetify.showNotification("What's That Genre? Plus: could not find the now-playing track info.", true);
+		}
+		return;
+	}
+	if (genreContainer.parentElement === host) return;
+
+	if (getComputedStyle(host).position === "static") (host as HTMLElement).style.position = "relative";
+	genreContainer.style.position = "absolute";
+	genreContainer.style.left = "0";
+	genreContainer.style.top = "100%";
+	genreContainer.style.width = `${GENRE_CONTAINER_WIDTH}px`;
+	genreContainer.style.maxWidth = `${GENRE_CONTAINER_WIDTH}px`;
+	genreContainer.style.flex = "";
+	genreContainer.style.order = "";
+	genreContainer.style.margin = "0";
+	host.appendChild(genreContainer);
 }
 
 async function renderGenres(
