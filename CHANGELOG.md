@@ -5,6 +5,21 @@ All notable changes to **What's That Genre? Plus** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-10-31
+
+### Added
+
+- MusicBrainz (CC0) source tier between Discogs and iTunes, weighted by tag count (count >= 2).
+- Source health tracking with a circuit breaker.
+- Daily canary check for sources.
+- Client-side rate budgets per source.
+- Cache v2: TTL, negative cache and migration from the old format.
+- Lookup state machine.
+
+### Changed
+
+- Genre label now shows the source name (Discogs / MusicBrainz / iTunes).
+
 ## [2.0.1] - 2026-10-31
 
 ### Added
