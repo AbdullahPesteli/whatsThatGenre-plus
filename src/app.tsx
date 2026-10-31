@@ -2,13 +2,15 @@ import "./styles.scss";
 import type { MusicalystData } from "./types/musicalyst";
 import {
   MSG_LOOKING,
-  MSG_NOT_FOUND,
+  MSG_RETRY,
   camelize,
+  flushCacheIndex,
   debounce,
   lookupGenres,
   replaceAll,
   waitForElement,
   type GenreResult,
+  type LookupOutcome,
 } from "./utils";
 
 // https://developer.spotify.com/documentation/web-api
@@ -64,6 +66,8 @@ export default async function main() {
 
   Spicetify.Player.addEventListener("songchange", refresh);
   window.addEventListener("resize", onResize);
+  // Back online: re-validate the current track (offline/stale records).
+  window.addEventListener("online", refresh);
 
   // Spotify can restore a playing track without emitting songchange.
   const restoreTimer = setTimeout(refresh, 1200);
@@ -79,6 +83,8 @@ export default async function main() {
     window.removeEventListener("resize", onResize);
     onResize.cancel();
     clearTimeout(restoreTimer);
+    window.removeEventListener("online", refresh);
+    flushCacheIndex(safeStorage());
     if (retryTimer) clearTimeout(retryTimer);
     retryTimer = undefined;
     genreContainer.remove();
@@ -124,12 +130,29 @@ async function injectGenres(genreContainer: HTMLDivElement) {
   genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
   await mountGenreContainer(genreContainer);
 
-  const outcome = await lookupGenres(
-    { artistId, title, artist, album, durationMs },
-    { fetch: (url, init) => fetch(url, init), storage: safeStorage() },
-  );
-  if (disposed || lastTrackKey !== trackKey) return;
+  const run = async (force = false) => {
+    const outcome = await lookupGenres(
+      { artistId, title, artist, album, durationMs },
+      {
+        fetch: (url, init) => fetch(url, init),
+        storage: safeStorage(),
+        force,
+      },
+    );
+    if (disposed || lastTrackKey !== trackKey) return;
+    await showOutcome(genreContainer, outcome, () => {
+      genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
+      void run(true);
+    });
+  };
+  await run();
+}
 
+async function showOutcome(
+  genreContainer: HTMLDivElement,
+  outcome: LookupOutcome,
+  retry: () => void,
+) {
   if (outcome.status === "ok") {
     cachedGenres = outcome.result.genres;
     await renderGenres(
@@ -137,20 +160,45 @@ async function injectGenres(genreContainer: HTMLDivElement) {
       outcome.result.genres,
       outcome.result.source,
     );
+    if (outcome.label) {
+      const note = document.createElement("span");
+      note.className = "genre-state-note";
+      note.textContent = outcome.label;
+      genreContainer.appendChild(note);
+    }
+    if (outcome.canRetry)
+      genreContainer.appendChild(retryButton(outcome, retry));
+    if (outcome.refresh) {
+      const trackKey = lastTrackKey;
+      const next = await outcome.refresh;
+      if (disposed || lastTrackKey !== trackKey) return;
+      await showOutcome(genreContainer, next, retry);
+    }
     return;
   }
 
   cachedGenres = [];
-  if (outcome.status === "error") {
-    genreContainer.innerHTML = "";
-    const span = document.createElement("span");
-    span.className = "genre-error";
-    span.textContent = outcome.message;
-    genreContainer.appendChild(span);
-  } else {
-    genreContainer.innerHTML = `<span class="genre-unavailable">${MSG_NOT_FOUND}</span>`;
-  }
+  genreContainer.innerHTML = "";
+  const span = document.createElement("span");
+  span.className =
+    outcome.status === "error" ? "genre-error" : "genre-unavailable";
+  span.textContent = outcome.message;
+  genreContainer.appendChild(span);
+  genreContainer.appendChild(retryButton(outcome, retry));
   layoutGenreContainer(genreContainer);
+}
+
+function retryButton(
+  outcome: { retryLabel?: string } | object,
+  retry: () => void,
+): HTMLElement {
+  const button = document.createElement("a");
+  button.className = "genre-retry";
+  button.textContent =
+    (outcome as { retryLabel?: string }).retryLabel ?? MSG_RETRY;
+  button.setAttribute("role", "button");
+  button.addEventListener("click", retry);
+  return button;
 }
 
 function safeStorage() {

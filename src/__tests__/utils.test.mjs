@@ -103,7 +103,8 @@ test("tribute band end-to-end: not shown, not cached", async () => {
     sleep: noSleep,
   });
   assert.equal(r.status, "not_found");
-  assert.equal(s.m.size, 0);
+  // cache v2: only a short-lived negative record may exist, never a genre record
+  assert.ok([...s.m.values()].every((v) => JSON.parse(v).kind === "neg"));
 });
 test("low-confidence result is returned but never cached; high-confidence is cached", async () => {
   const s = mem();
