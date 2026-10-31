@@ -7,22 +7,22 @@
  */
 
 export type MusicalystRelatedGenre = {
-	genre: string;
+  genre: string;
 };
 
 export type MusicalystArtist = {
-	id: string;
-	name: string;
-	images: { url: string }[];
+  id: string;
+  name: string;
+  images: { url: string }[];
 };
 
 export type MusicalystAdvancedInfo = {
-	description: string;
+  description: string;
 };
 
 /** The `pageProps` object returned by the endpoint. */
 export type MusicalystData = {
-	genresAdvancedInfo: MusicalystAdvancedInfo;
-	relatedGenres: MusicalystRelatedGenre[];
-	topArtists: MusicalystArtist[];
+  genresAdvancedInfo: MusicalystAdvancedInfo;
+  relatedGenres: MusicalystRelatedGenre[];
+  topArtists: MusicalystArtist[];
 };
