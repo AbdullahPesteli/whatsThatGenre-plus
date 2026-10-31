@@ -6,6 +6,23 @@
  * Behaviour is preserved; see issue #2.
  */
 
+import { takeSlot, resetBudgets } from "./sources/budget";
+import {
+  recordHealth,
+  sourceAllowed,
+  canaryDue,
+  markCanary,
+  type HealthCode,
+} from "./sources/health";
+import {
+  MB_USER_AGENT,
+  MB_MAX_RELEASE_LOOKUPS,
+  mbSearchUrl,
+  mbReleaseUrl,
+  parseMbSearch,
+  parseMbGenres,
+} from "./sources/musicbrainz";
+
 /** "synth-pop" / "post grunge" -> "Synth-Pop" / "PostGrunge" */
 export function camelize(value: string): string {
   return value.replace(/(^\w{1})|([\s-]+\w{1})/g, (match) =>
@@ -106,7 +123,7 @@ export const CACHE_MIN_CONFIDENCE = 0.95;
 
 export type GenreResult = {
   genres: string[];
-  source: "Discogs" | "Apple Music";
+  source: "Discogs" | "MusicBrainz" | "Apple Music";
   /** 0..1; low-confidence results are shown but never cached. */
   confidence: number;
 };
@@ -119,15 +136,71 @@ export type TrackQuery = {
   artistId?: string;
 };
 
+/** User-visible lookup state (cache v2 state machine). */
+export type CacheState =
+  "fresh" | "stale" | "refreshing" | "offline" | "error" | "not_found";
+
 export type LookupOutcome =
-  | { status: "ok"; result: GenreResult; cached: boolean }
-  | { status: "not_found" }
-  | { status: "error"; message: string };
+  | {
+      status: "ok";
+      result: GenreResult;
+      cached: boolean;
+      state: "fresh" | "stale" | "refreshing" | "offline" | "error";
+      /** Extra line for the UI (e.g. "Offline - last known genre (10 days ago)"). */
+      label?: string;
+      /** Age of the cached record in whole days, when it came from cache. */
+      ageDays?: number;
+      /** Show a retry control. */
+      canRetry?: boolean;
+      /** Present while a background refresh runs; resolves to the refreshed outcome. */
+      refresh?: Promise<LookupOutcome>;
+    }
+  | {
+      status: "not_found";
+      state: "not_found";
+      cached: boolean;
+      canRetry: true;
+      message: string;
+      retryLabel: string;
+      missCount?: number;
+    }
+  | {
+      status: "error";
+      state: "error" | "offline";
+      message: string;
+      canRetry: true;
+      retryLabel: string;
+    };
 
 export const MSG_LOOKING = "Looking for genre...";
 export const MSG_NOT_FOUND = "Genre not found";
 export const MSG_NETWORK_ERROR =
   "Couldn't reach Discogs/Apple Music - check your connection";
+export const MSG_REFRESHING = "Updating...";
+export const MSG_OFFLINE_NONE = "You're offline, no saved genre for this track";
+export const MSG_SERVICE_ERROR = "Couldn't get the genre right now";
+export const MSG_UPDATE_FAILED = "Update failed";
+export const MSG_RETRY = "Try again";
+export const MSG_SEARCH_AGAIN = "Search again";
+export const EXTENSION_VERSION = "2.0.1";
+
+/** User-facing source name (stored value "Apple Music" is shown as iTunes). */
+export function sourceLabel(source: string): string {
+  return source === "Apple Music" ? "iTunes" : source;
+}
+
+/** Badge text + tooltip; low confidence gets a leading `~`. */
+export function sourceBadge(result: { source: string; confidence: number }): {
+  text: string;
+  title: string;
+} {
+  const label = sourceLabel(result.source);
+  const low = result.confidence < CACHE_MIN_CONFIDENCE;
+  return {
+    text: (low ? "~" : "") + label,
+    title: `Source: ${label}${low ? " (low confidence)" : ""}`,
+  };
+}
 
 /** NFKD + strip combining marks, lowercase, keep any-script letters and digits. */
 export function normalizeText(value: string): string {
@@ -298,14 +371,27 @@ export type FetchLike = (
   json(): Promise<unknown>;
 }>;
 
+export type StorageLike = {
+  getItem(key: string): string | null;
+  setItem(key: string, value: string): void;
+  removeItem?(key: string): void;
+  key?(index: number): string | null;
+  readonly length?: number;
+};
+
 export type LookupDeps = {
   fetch: FetchLike;
-  storage?: {
-    getItem(key: string): string | null;
-    setItem(key: string, value: string): void;
-  };
+  storage?: StorageLike;
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
+  /** Clock, injectable for tests. */
+  now?: () => number;
+  /** Connectivity probe; defaults to `navigator.onLine !== false`. */
+  isOnline?: () => boolean;
+  /** "Search again": bypass negative cache and fresh/stale shortcuts. */
+  force?: boolean;
+  /** Extension version stamped on records; negative records of other versions are dropped. */
+  appVersion?: string;
 };
 
 export type FetchOutcome =
@@ -329,10 +415,13 @@ export async function fetchJson(
   url: string,
   deps: LookupDeps,
   headers?: Record<string, string>,
+  source?: string,
 ): Promise<FetchOutcome> {
   const sleep =
     deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let attempt = 0; attempt < 2; attempt++) {
+    // client rate budget: over-budget requests wait in line, they are never dropped
+    if (source) await takeSlot(source, deps.now ?? Date.now, sleep);
     const controller = new AbortController();
     const timer = setTimeout(
       () => controller.abort(),
@@ -355,16 +444,76 @@ export async function fetchJson(
   return { kind: "http", status: 0 };
 }
 
-type Probe = { answered: number; failed: number };
+type Probe = {
+  answered: number;
+  failed: number;
+  typeErrors: number;
+  /** HTTP 200 but the expected fields were missing (kept apart from not_found). */
+  schema: number;
+};
 
-function note(probe: Probe, outcome: FetchOutcome) {
-  // 429/5xx/network = "service unavailable"; any other response = it answered.
+const nowOf = (deps: LookupDeps) => (deps.now ?? Date.now)();
+
+function note(
+  probe: Probe,
+  outcome: FetchOutcome,
+  deps?: LookupDeps,
+  source?: string,
+) {
+  let code: HealthCode | undefined;
+  if (outcome.kind === "http") {
+    code =
+      outcome.status === 429
+        ? "http429"
+        : outcome.status >= 500 || outcome.status === 0
+          ? "http5xx"
+          : "http4xx";
+  } else if (outcome.kind === "network") code = "network";
+  if (deps && source && code)
+    recordHealth(deps.storage, source, code, nowOf(deps));
+  // 429/5xx/network = "service unavailable"; 401/403 = we are being refused; else it answered.
   if (
     outcome.kind === "ok" ||
-    (outcome.kind === "http" && outcome.status !== 429 && outcome.status < 500)
+    (outcome.kind === "http" &&
+      outcome.status !== 429 &&
+      outcome.status !== 401 &&
+      outcome.status !== 403 &&
+      outcome.status < 500)
   )
     probe.answered++;
-  else probe.failed++;
+  else {
+    probe.failed++;
+    if (outcome.kind === "network" && outcome.error instanceof TypeError)
+      probe.typeErrors++;
+  }
+}
+
+/** Parsed-body verdict for an HTTP 200: ok / notfound / schema (own failure class). */
+function noteParsed(
+  probe: Probe,
+  deps: LookupDeps,
+  source: string,
+  code: "ok" | "notfound" | "schema",
+) {
+  if (code === "schema") {
+    probe.schema++;
+    probe.answered--; // a 200 with a broken shape is not a real answer
+  }
+  recordHealth(deps.storage, source, code, nowOf(deps));
+}
+
+/** Discogs: `results` array; when non-empty, some of the first 5 has title + genre|style arrays. */
+export function discogsShapeOk(json: any): boolean {
+  if (!Array.isArray(json?.results)) return false;
+  if (!json.results.length) return true;
+  return json.results
+    .slice(0, 5)
+    .some(
+      (r: any) =>
+        r &&
+        typeof r.title === "string" &&
+        (Array.isArray(r.genre) || Array.isArray(r.style)),
+    );
 }
 
 async function lookupDiscogs(
@@ -388,11 +537,19 @@ async function lookupDiscogs(
   ].filter(Boolean);
 
   for (const url of urls) {
-    const outcome = await fetchJson(url, deps, {
-      "User-Agent": DISCOGS_USER_AGENT,
-    });
-    note(probe, outcome);
+    if (!sourceAllowed(deps.storage, "Discogs", nowOf(deps))) break;
+    const outcome = await fetchJson(
+      url,
+      deps,
+      { "User-Agent": DISCOGS_USER_AGENT },
+      "Discogs",
+    );
+    note(probe, outcome, deps, "Discogs");
     if (outcome.kind !== "ok") continue;
+    if (!discogsShapeOk(outcome.json)) {
+      noteParsed(probe, deps, "Discogs", "schema");
+      continue;
+    }
     const results: any[] = Array.isArray(outcome.json?.results)
       ? outcome.json.results
       : [];
@@ -405,7 +562,10 @@ async function lookupDiscogs(
         })
       : [];
     const pool = relevant.length ? relevant : results;
-    if (!pool.length) continue;
+    if (!pool.length) {
+      noteParsed(probe, deps, "Discogs", "notfound");
+      continue;
+    }
 
     const genreCounts = new Map<string, number>();
     const styleCounts = new Map<string, number>();
@@ -419,6 +579,7 @@ async function lookupDiscogs(
     const labels = [...ranked.entries()]
       .sort((x, y) => y[1] - x[1])
       .map(([name]) => name);
+    noteParsed(probe, deps, "Discogs", labels.length ? "ok" : "notfound");
     if (labels.length) {
       // Unrelated fallback pool (nothing matched the artist) is shown but not trusted/cached.
       return {
@@ -431,6 +592,98 @@ async function lookupDiscogs(
   return;
 }
 
+async function lookupMusicBrainz(
+  track: TrackQuery,
+  deps: LookupDeps,
+  probe: Probe,
+): Promise<GenreResult | undefined> {
+  if (!track.title || !track.artist) return;
+  if (!sourceAllowed(deps.storage, "MusicBrainz", nowOf(deps))) return;
+  const headers = { "User-Agent": MB_USER_AGENT };
+  const search = await fetchJson(
+    mbSearchUrl(track.title, track.artist),
+    deps,
+    headers,
+    "MusicBrainz",
+  );
+  note(probe, search, deps, "MusicBrainz");
+  if (search.kind !== "ok") return;
+  const recs = parseMbSearch(search.json);
+  if (!recs) {
+    noteParsed(probe, deps, "MusicBrainz", "schema");
+    return;
+  }
+  const qTitle = normalizeTitle(track.title);
+  const qArtist = normalizeText(track.artist);
+  const matching = recs.filter((r) => {
+    if (r.score < 90) return false;
+    if (isDerivativeName(r.title, track.title)) return false;
+    if (wordSimilarity(qTitle, normalizeTitle(r.title)) < TITLE_MIN_SIMILARITY)
+      return false;
+    const artists = normalizeText(r.artists.join(" "));
+    if (!(tokenSubset(qArtist, artists) || artists.includes(qArtist)))
+      return false;
+    if (
+      track.durationMs > 0 &&
+      r.length &&
+      Math.abs(track.durationMs - r.length) > 10000
+    )
+      return false;
+    return true;
+  });
+  if (!matching.length) {
+    noteParsed(probe, deps, "MusicBrainz", "notfound");
+    return;
+  }
+  // album-title matches first, then Official before the rest
+  const qAlbum = normalizeText(track.album);
+  const ranked = matching
+    .flatMap((r) => r.releases)
+    .map((rel) => ({
+      id: rel.id,
+      rank:
+        (qAlbum && normalizeText(rel.title ?? "") === qAlbum ? 0 : 2) +
+        (rel.status === "Official" ? 0 : 1),
+    }))
+    .sort((x, y) => x.rank - y.rank);
+  const releases = [...new Set(ranked.map((x) => x.id))];
+  let sawGenres = false;
+  for (const id of releases.slice(0, MB_MAX_RELEASE_LOOKUPS)) {
+    const lk = await fetchJson(mbReleaseUrl(id), deps, headers, "MusicBrainz");
+    note(probe, lk, deps, "MusicBrainz");
+    if (lk.kind !== "ok") continue;
+    const genres = parseMbGenres(lk.json);
+    if (!genres) {
+      noteParsed(probe, deps, "MusicBrainz", "schema");
+      continue;
+    }
+    sawGenres = true;
+    if (genres.length) {
+      noteParsed(probe, deps, "MusicBrainz", "ok");
+      const knownLength =
+        track.durationMs > 0 && matching.some((m) => m.length);
+      const albumHit =
+        Boolean(track.album) &&
+        wordSimilarity(
+          normalizeText(track.album),
+          normalizeText(String(lk.json?.title ?? "")),
+        ) >= 0.94;
+      return {
+        genres,
+        source: "MusicBrainz",
+        confidence: albumHit ? 1 : knownLength ? 0.95 : 0.9,
+      };
+    }
+  }
+  noteParsed(
+    probe,
+    deps,
+    "MusicBrainz",
+    sawGenres || !releases.length ? "notfound" : "schema",
+  );
+  return;
+}
+
 async function lookupApple(
   track: TrackQuery,
   deps: LookupDeps,
@@ -439,15 +692,31 @@ async function lookupApple(
   if (!track.title || !track.artist) return;
   const term = encodeURIComponent(`${track.title} ${track.artist}`);
   let results: AppleItem[] = [];
+  let appleShapeBad = false;
   for (const country of ["us", "tr"]) {
+    if (!sourceAllowed(deps.storage, "Apple Music", nowOf(deps))) break;
     const outcome = await fetchJson(
       `https://itunes.apple.com/search?term=${term}&entity=song&limit=25&country=${country}`,
       deps,
     );
-    note(probe, outcome);
-    if (outcome.kind === "ok" && Array.isArray(outcome.json?.results))
-      results = results.concat(outcome.json.results);
+    note(probe, outcome, deps, "Apple Music");
+    if (outcome.kind !== "ok") continue;
+    const arr = outcome.json?.results;
+    if (
+      !Array.isArray(arr) ||
+      (arr.length > 0 &&
+        !arr
+          .slice(0, 5)
+          .some((r: any) => typeof r?.primaryGenreName === "string"))
+    ) {
+      appleShapeBad = true;
+      noteParsed(probe, deps, "Apple Music", "schema");
+      continue;
+    }
+    noteParsed(probe, deps, "Apple Music", arr.length ? "ok" : "notfound");
+    results = results.concat(arr);
   }
+  void appleShapeBad;
 
   const qAlbum = normalizeText(track.album);
   const candidates = results
@@ -486,18 +755,242 @@ async function lookupApple(
   };
 }
 
-function readCache(
-  storage: LookupDeps["storage"],
-  key: string,
-): GenreResult | undefined {
+/* ------------------------------------------------------------------ */
+/* Cache v2: per-record keys, tiered TTL, negative cache, state machine */
+/* ------------------------------------------------------------------ */
+
+export const CACHE_PREFIX = "wtg:v2:";
+export const CACHE_INDEX_KEY = "wtg:v2:idx";
+export const MAX_ENTRIES = 2000;
+export const EVICT_FRACTION = 0.2;
+export const INDEX_DEBOUNCE_MS = 500;
+export const NEG_BASE_TTL_MS = 60 * 60 * 1000;
+export const NEG_MAX_TTL_MS = 24 * 60 * 60 * 1000;
+export const NEG_MULTIPLIER = 4;
+export const NETWORK_BACKOFF_MS = [2000, 8000, 30000];
+const DAY = 24 * 60 * 60 * 1000;
+
+export type CacheRecord = {
+  v: 2;
+  kind: "genre" | "neg";
+  genres: string[];
+  source: string;
+  confidence: number;
+  cachedAt: number;
+  /** Fresh window, stored so later threshold changes do not affect old records. */
+  ttlMs: number;
+  /** Past this age the record is "expired" (still shown as last known when offline/error). */
+  staleMaxMs: number;
+  appVersion: string;
+  migrated?: boolean;
+  /** Negative records only. */
+  missCount?: number;
+  expiresAt?: number;
+  lastError?: { at: number; message: string };
+};
+
+/** Source x confidence -> fresh / staleMax windows. */
+export function ttlFor(
+  source: string,
+  confidence: number,
+): { ttlMs: number; staleMaxMs: number } {
+  if (source === "Discogs")
+    return confidence >= 0.85
+      ? { ttlMs: 7 * DAY, staleMaxMs: 90 * DAY }
+      : { ttlMs: 1 * DAY, staleMaxMs: 30 * DAY };
+  if (source === "Apple Music")
+    return { ttlMs: 30 * DAY, staleMaxMs: 180 * DAY };
+  if (source === "MusicBrainz" || source === "Wikidata")
+    return { ttlMs: 90 * DAY, staleMaxMs: 365 * DAY };
+  // unknown (migrated v1): shortest tier
+  return { ttlMs: 1 * DAY, staleMaxMs: 30 * DAY };
+}
+
+/** Negative TTL: 1h, x4 per consecutive miss, capped at 24h. */
+export function negativeTtlMs(missCount: number): number {
+  return Math.min(
+    NEG_BASE_TTL_MS * NEG_MULTIPLIER ** Math.max(0, missCount - 1),
+    NEG_MAX_TTL_MS,
+  );
+}
+
+export function v2KeyFor(key: string): string {
+  return CACHE_PREFIX + key.replace(/^hermesGenre:/, "");
+}
+
+type IndexEntry = { u: number; n: 0 | 1 };
+type IndexState = {
+  map: Map<string, IndexEntry>;
+  timer?: ReturnType<typeof setTimeout>;
+};
+const indexes = new WeakMap<object, IndexState>();
+
+function loadIndex(storage: StorageLike): IndexState {
+  let st = indexes.get(storage);
+  if (st) return st;
+  st = { map: new Map() };
+  indexes.set(storage, st);
   try {
-    const raw = storage?.getItem(key);
-    if (!raw) return;
-    const parsed = JSON.parse(raw);
-    if (parsed && Array.isArray(parsed.genres) && parsed.genres.length)
-      return { confidence: 1, ...parsed } as GenreResult;
+    const raw = storage.getItem(CACHE_INDEX_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      for (const [k, e] of Object.entries(parsed ?? {}) as [string, any][])
+        if (e && typeof e.u === "number")
+          st.map.set(k, { u: e.u, n: e.n ? 1 : 0 });
+      return st;
+    }
   } catch {}
-  return;
+  // Index missing/corrupt: rebuild from the records themselves when enumerable.
+  try {
+    const len = storage.length ?? 0;
+    for (let i = 0; i < len; i++) {
+      const k = storage.key?.(i);
+      if (!k || !k.startsWith(CACHE_PREFIX) || k === CACHE_INDEX_KEY) continue;
+      try {
+        const rec = JSON.parse(storage.getItem(k) ?? "null");
+        st.map.set(k, {
+          u: rec?.cachedAt ?? 0,
+          n: rec?.kind === "neg" ? 1 : 0,
+        });
+      } catch {}
+    }
+  } catch {}
+  return st;
+}
+
+function writeIndexNow(storage: StorageLike, st: IndexState) {
+  if (st.timer) clearTimeout(st.timer);
+  st.timer = undefined;
+  const obj: Record<string, IndexEntry> = {};
+  for (const [k, e] of st.map) obj[k] = e;
+  try {
+    storage.setItem(CACHE_INDEX_KEY, JSON.stringify(obj));
+  } catch {}
+}
+
+function scheduleIndex(storage: StorageLike, st: IndexState) {
+  if (st.timer) return;
+  const t = setTimeout(() => writeIndexNow(storage, st), INDEX_DEBOUNCE_MS);
+  (t as { unref?: () => void }).unref?.();
+  st.timer = t;
+}
+
+/** Write the (debounced) index immediately. Used on teardown and by tests. */
+export function flushCacheIndex(storage: StorageLike | undefined) {
+  if (!storage) return;
+  const st = indexes.get(storage);
+  if (st) writeIndexNow(storage, st);
+}
+
+function evictOldest(storage: StorageLike, st: IndexState, fraction: number) {
+  // negatives go first, then least recently used
+  const order = [...st.map.entries()].sort(
+    (a, b) => b[1].n - a[1].n || a[1].u - b[1].u,
+  );
+  const count = Math.max(1, Math.ceil(order.length * fraction));
+  for (const [k] of order.slice(0, count)) {
+    try {
+      storage.removeItem?.(k);
+    } catch {}
+    st.map.delete(k);
+  }
+}
+
+function putRecord(
+  storage: StorageLike | undefined,
+  v2Key: string,
+  rec: CacheRecord,
+  now: number,
+): boolean {
+  if (!storage) return false;
+  try {
+    const st = loadIndex(storage);
+    const value = JSON.stringify(rec);
+    if (!st.map.has(v2Key) && st.map.size >= MAX_ENTRIES)
+      evictOldest(storage, st, EVICT_FRACTION);
+    try {
+      storage.setItem(v2Key, value);
+    } catch {
+      // QuotaExceededError: drop the oldest 20 %, retry exactly once, then give up quietly.
+      evictOldest(storage, st, EVICT_FRACTION);
+      storage.setItem(v2Key, value);
+    }
+    st.map.set(v2Key, { u: now, n: rec.kind === "neg" ? 1 : 0 });
+    scheduleIndex(storage, st);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function dropRecord(storage: StorageLike | undefined, v2Key: string) {
+  if (!storage) return;
+  try {
+    storage.removeItem?.(v2Key);
+    const st = loadIndex(storage);
+    if (st.map.delete(v2Key)) scheduleIndex(storage, st);
+  } catch {}
+}
+
+function readRecord(
+  storage: StorageLike | undefined,
+  key: string,
+  now: number,
+  appVersion: string,
+): CacheRecord | undefined {
+  if (!storage || !key) return;
+  const v2Key = v2KeyFor(key);
+  try {
+    const raw = storage.getItem(v2Key);
+    if (raw) {
+      const rec = JSON.parse(raw);
+      if (rec && typeof rec.v === "number" && rec.v > 2) return; // future schema: neither read nor delete
+      if (
+        rec?.v === 2 &&
+        (rec.kind === "neg" ||
+          (Array.isArray(rec.genres) && rec.genres.length > 0))
+      ) {
+        const st = loadIndex(storage);
+        const prev = st.map.get(v2Key);
+        if (!prev || prev.u !== now) {
+          st.map.set(v2Key, { u: now, n: rec.kind === "neg" ? 1 : 0 });
+          scheduleIndex(storage, st);
+        }
+        return rec as CacheRecord;
+      }
+      dropRecord(storage, v2Key); // corrupt / wrong shape
+    }
+  } catch {
+    dropRecord(storage, v2Key);
+  }
+  // Lazy v1 migration: v1 key held {genres, confidence, source?}
+  try {
+    const raw = storage.getItem(key);
+    if (!raw) return;
+    const old = JSON.parse(raw);
+    if (!old || !Array.isArray(old.genres) || !old.genres.length) {
+      storage.removeItem?.(key);
+      return;
+    }
+    const confidence = typeof old.confidence === "number" ? old.confidence : 1;
+    const { ttlMs, staleMaxMs } = ttlFor("unknown", confidence);
+    const rec: CacheRecord = {
+      v: 2,
+      kind: "genre",
+      genres: old.genres,
+      source: typeof old.source === "string" ? old.source : "unknown",
+      confidence,
+      cachedAt: now,
+      ttlMs,
+      staleMaxMs,
+      appVersion,
+      migrated: true,
+    };
+    if (putRecord(storage, v2Key, rec, now)) storage.removeItem?.(key);
+    return rec;
+  } catch {
+    return;
+  }
 }
 
 export function shouldCache(key: string, result: GenreResult): boolean {
@@ -508,31 +1001,326 @@ export function shouldCache(key: string, result: GenreResult): boolean {
   );
 }
 
+/* ---- lookup state machine ---- */
+
+type NetResult =
+  | { kind: "found"; result: GenreResult }
+  | { kind: "not_found"; clean: boolean }
+  | { kind: "error"; network: boolean };
+
+const inflight = new Map<string, Promise<NetResult>>();
+const netFailures = new Map<string, { count: number; until: number }>();
+
+/** Test hook: forget in-flight requests and backoff state. */
+export function resetLookupState() {
+  inflight.clear();
+  netFailures.clear();
+  resetBudgets();
+}
+
+export function ageLabel(ageMs: number): string {
+  const days = Math.max(0, Math.floor(ageMs / DAY));
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
+async function network(
+  track: TrackQuery,
+  deps: LookupDeps,
+): Promise<NetResult> {
+  const probe: Probe = { answered: 0, failed: 0, typeErrors: 0, schema: 0 };
+  let result = await lookupDiscogs(track, deps, probe);
+  if (!result) result = await lookupMusicBrainz(track, deps, probe);
+  if (!result) result = await lookupApple(track, deps, probe);
+  if (result) return { kind: "found", result };
+  // schema errors are their own class: never written to the negative cache
+  if (probe.failed > 0 || probe.schema > 0)
+    return {
+      kind: "error",
+      network:
+        probe.schema === 0 &&
+        probe.answered === 0 &&
+        probe.typeErrors === probe.failed,
+    };
+  return { kind: "not_found", clean: true };
+}
+
+function okFromRecord(
+  rec: CacheRecord,
+  now: number,
+  state: "fresh" | "stale" | "refreshing" | "offline" | "error",
+  extra: Partial<Extract<LookupOutcome, { status: "ok" }>> = {},
+): LookupOutcome {
+  return {
+    status: "ok",
+    cached: true,
+    state,
+    ageDays: Math.floor(Math.max(0, now - rec.cachedAt) / DAY),
+    result: {
+      genres: rec.genres,
+      source: rec.source as GenreResult["source"],
+      confidence: rec.confidence,
+    },
+    ...extra,
+  };
+}
+
 /** Cache -> Discogs -> Apple Music. Network failure is reported separately from "not found". */
 export async function lookupGenres(
   track: TrackQuery,
   deps: LookupDeps,
 ): Promise<LookupOutcome> {
   const key = cacheKeyFor(track.artist, track.title);
-  if (key) {
-    const cached = readCache(deps.storage, key);
-    if (cached) return { status: "ok", result: cached, cached: true };
-  }
+  const now = (deps.now ?? Date.now)();
+  const appVersion = deps.appVersion ?? EXTENSION_VERSION;
+  const online = deps.isOnline
+    ? deps.isOnline()
+    : typeof navigator === "undefined" || navigator.onLine !== false;
+  const v2Key = key ? v2KeyFor(key) : "";
 
-  const probe: Probe = { answered: 0, failed: 0 };
-  let result = await lookupDiscogs(track, deps, probe);
-  if (!result) result = await lookupApple(track, deps, probe);
-
-  if (result) {
-    if (shouldCache(key, result)) {
-      try {
-        deps.storage?.setItem(key, JSON.stringify(result));
-      } catch {}
+  let rec = readRecord(deps.storage, key, now, appVersion);
+  let good: CacheRecord | undefined;
+  if (rec?.kind === "neg") {
+    if (rec.appVersion !== appVersion) {
+      dropRecord(deps.storage, v2Key); // plugin version changed: forget negatives
+      rec = undefined;
+    } else if (!deps.force && now < (rec.expiresAt ?? 0)) {
+      return {
+        status: "not_found",
+        state: "not_found",
+        cached: true,
+        canRetry: true,
+        message: MSG_NOT_FOUND,
+        retryLabel: MSG_SEARCH_AGAIN,
+        missCount: rec.missCount,
+      };
     }
-    return { status: "ok", result, cached: false };
+  } else if (rec) good = rec;
+
+  const age = good ? now - good.cachedAt : Infinity;
+  const withinStaleMax = good ? age <= good.staleMaxMs : false;
+
+  if (good && !deps.force && age <= good.ttlMs && !good.lastError)
+    return okFromRecord(good, now, "fresh");
+  if (good && !deps.force && age <= good.ttlMs && good.lastError)
+    return okFromRecord(good, now, "fresh");
+
+  // offline: never touch the network
+  const backoff = key ? netFailures.get(key) : undefined;
+  const backingOff = online && !deps.force && backoff && now < backoff.until;
+  if (!online || backingOff) {
+    if (good)
+      return okFromRecord(good, now, "offline", {
+        label: `Offline - last known genre (${ageLabel(age)})`,
+        canRetry: true,
+      });
+    return {
+      status: "error",
+      state: "offline",
+      message: online ? MSG_NETWORK_ERROR : MSG_OFFLINE_NONE,
+      canRetry: true,
+      retryLabel: MSG_RETRY,
+    };
   }
-  // Nothing answered at all -> connectivity problem, not "no genre".
-  if (probe.answered === 0 && probe.failed > 0)
-    return { status: "error", message: MSG_NETWORK_ERROR };
-  return { status: "not_found" };
+
+  // single flight per track
+  let flight = key ? inflight.get(key) : undefined;
+  if (!flight) {
+    flight = (async (): Promise<NetResult> => {
+      const net = await network(track, deps);
+      const t = (deps.now ?? Date.now)();
+      if (net.kind === "found") {
+        if (key) netFailures.delete(key);
+        if (shouldCache(key, net.result)) {
+          const { ttlMs, staleMaxMs } = ttlFor(
+            net.result.source,
+            net.result.confidence,
+          );
+          putRecord(
+            deps.storage,
+            v2Key,
+            {
+              v: 2,
+              kind: "genre",
+              genres: net.result.genres,
+              source: net.result.source,
+              confidence: net.result.confidence,
+              cachedAt: t,
+              ttlMs,
+              staleMaxMs,
+              appVersion,
+            },
+            t,
+          );
+        }
+      } else if (net.kind === "not_found") {
+        if (key) netFailures.delete(key);
+        // never replace a good record with a negative one
+        if (key && net.clean && !good) {
+          const missCount =
+            (rec?.kind === "neg" ? (rec.missCount ?? 0) : 0) + 1;
+          const ttl = negativeTtlMs(missCount);
+          putRecord(
+            deps.storage,
+            v2Key,
+            {
+              v: 2,
+              kind: "neg",
+              genres: [],
+              source: "none",
+              confidence: 0,
+              cachedAt: t,
+              ttlMs: ttl,
+              staleMaxMs: ttl,
+              appVersion,
+              missCount,
+              expiresAt: t + ttl,
+            },
+            t,
+          );
+        }
+      } else if (net.network && key) {
+        const count = (netFailures.get(key)?.count ?? 0) + 1;
+        const step =
+          NETWORK_BACKOFF_MS[Math.min(count, NETWORK_BACKOFF_MS.length) - 1];
+        netFailures.set(key, { count, until: t + step });
+      }
+      return net;
+    })().finally(() => {
+      if (key) inflight.delete(key);
+    });
+    if (key) inflight.set(key, flight);
+  }
+
+  const settle = (net: NetResult): LookupOutcome => {
+    const t = (deps.now ?? Date.now)();
+    if (net.kind === "found")
+      return {
+        status: "ok",
+        result: net.result,
+        cached: false,
+        state: "fresh",
+      };
+    if (net.kind === "not_found") {
+      if (good) return okFromRecord(good, t, "stale"); // keep what we know
+      return {
+        status: "not_found",
+        state: "not_found",
+        cached: false,
+        canRetry: true,
+        message: MSG_NOT_FOUND,
+        retryLabel: MSG_SEARCH_AGAIN,
+      };
+    }
+    // error: never overwrite or drop the good record; remember the error on it
+    if (good) {
+      putRecord(
+        deps.storage,
+        v2Key,
+        {
+          ...good,
+          lastError: { at: t, message: net.network ? "network" : "http" },
+        },
+        t,
+      );
+      return okFromRecord(good, t, net.network ? "offline" : "error", {
+        label: net.network
+          ? `Offline - last known genre (${ageLabel(t - good.cachedAt)})`
+          : MSG_UPDATE_FAILED,
+        canRetry: true,
+      });
+    }
+    return {
+      status: "error",
+      state: net.network ? "offline" : "error",
+      message: net.network ? MSG_NETWORK_ERROR : MSG_SERVICE_ERROR,
+      canRetry: true,
+      retryLabel: MSG_RETRY,
+    };
+  };
+
+  // stale-while-revalidate: show the old genres now, refresh in the background
+  if (good && !deps.force && withinStaleMax) {
+    return okFromRecord(good, now, "refreshing", {
+      label: MSG_REFRESHING,
+      refresh: flight.then(settle),
+    });
+  }
+  return settle(await flight);
 }
+
+/** Fixed canary queries (no user data). */
+export const CANARY_DISCOGS_URL =
+  "https://api.discogs.com/database/search?artist=Radiohead&release_title=OK%20Computer&type=release&per_page=5";
+/** Pablo Honey (Official release); stable MBID. */
+export const CANARY_MB_URL = mbReleaseUrl(
+  "287dca89-2bf4-42c2-ba32-b6eddceb835f",
+);
+
+/**
+ * Daily self-test: 1 Discogs + 1 MusicBrainz request, verifies field shape,
+ * writes the result to wtg:health:v1. Returns null when not due.
+ */
+export async function runCanary(
+  deps: LookupDeps,
+): Promise<{ Discogs: HealthCode; MusicBrainz: HealthCode } | null> {
+  const t = nowOf(deps);
+  if (!canaryDue(deps.storage, t)) return null;
+  markCanary(deps.storage, t);
+  const out = {} as { Discogs: HealthCode; MusicBrainz: HealthCode };
+  const probe: Probe = { answered: 0, failed: 0, typeErrors: 0, schema: 0 };
+  const run = async (
+    source: "Discogs" | "MusicBrainz",
+    url: string,
+    headers: Record<string, string>,
+    shapeOk: (json: any) => boolean,
+  ) => {
+    if (!sourceAllowed(deps.storage, source, nowOf(deps))) {
+      out[source] = "network";
+      return;
+    }
+    const o = await fetchJson(url, deps, headers, source);
+    note(probe, o, deps, source);
+    if (o.kind === "ok") {
+      const ok = shapeOk(o.json);
+      recordHealth(deps.storage, source, ok ? "ok" : "schema", nowOf(deps));
+      out[source] = ok ? "ok" : "schema";
+    } else
+      out[source] =
+        o.kind === "network"
+          ? "network"
+          : o.status === 429
+            ? "http429"
+            : o.status >= 500 || o.status === 0
+              ? "http5xx"
+              : "http4xx";
+  };
+  await run(
+    "Discogs",
+    CANARY_DISCOGS_URL,
+    { "User-Agent": DISCOGS_USER_AGENT },
+    (j) =>
+      discogsShapeOk(j) && Array.isArray(j.results) && j.results.length > 0,
+  );
+  await run(
+    "MusicBrainz",
+    CANARY_MB_URL,
+    { "User-Agent": MB_USER_AGENT },
+    (j) => Array.isArray(j?.genres),
+  );
+  return out;
+}
+
+export { reserveSlot, BUDGETS } from "./sources/budget";
+export {
+  recordHealth,
+  sourceAllowed,
+  sourceStatus,
+  getBreaker,
+  evaluate as evaluateHealth,
+  HEALTH_KEY,
+} from "./sources/health";
+export {
+  parseMbSearch,
+  parseMbGenres,
+  MB_USER_AGENT,
+} from "./sources/musicbrainz";
