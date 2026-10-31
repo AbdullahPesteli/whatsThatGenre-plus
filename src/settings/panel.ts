@@ -11,7 +11,6 @@ import {
   loadSettings,
   panelText,
   removeManualGenre,
-  resetSettings,
   saveSettings,
   setManualGenre,
   validSourceOrder,
@@ -31,6 +30,8 @@ export type PanelHooks = {
   changed: () => void;
 };
 
+export const TOPBAR_TITLE = "What's That Genre? Plus";
+
 const S = () => (globalThis as any).Spicetify as any;
 
 function currentUri(): string {
@@ -41,13 +42,18 @@ function currentUri(): string {
   }
 }
 
+/** Move `first` to the front, keep the others in their current order. */
+export function promoteSource(order: SourceId[], first: SourceId): SourceId[] {
+  return [first, ...order.filter((x) => x !== first)];
+}
+
 export function buildPanel(hooks: PanelHooks): unknown {
   const R = S().React;
   const h = R.createElement as (...a: unknown[]) => unknown;
   const Panel = () => {
     const [, bump] = R.useState(0);
     const rerender = () => bump((n: number) => n + 1);
-    const [armed, setArmed] = R.useState("");
+    const [armed, setArmed] = R.useState(false);
     const [manual, setManual] = R.useState("");
     const storage = hooks.storage();
     const settings = loadSettings(storage);
@@ -61,131 +67,147 @@ export function buildPanel(hooks: PanelHooks): unknown {
       hooks.changed();
       rerender();
     };
-    const confirmThen = (id: string, run: () => void) => () => {
-      if (armed !== id) {
-        setArmed(id);
-        setTimeout(() => setArmed((a: string) => (a === id ? "" : a)), 4000);
-        return;
-      }
-      setArmed("");
-      run();
-    };
-    const css = {
+    const ctl = {
       color: "var(--spice-text)",
       background: "var(--spice-main)",
       border: "1px solid var(--spice-button-disabled)",
       borderRadius: 4,
-      padding: "4px 8px",
+      padding: "6px 10px",
+      font: "inherit",
     };
     const btn = (label: string, onClick: () => void, extra = {}) =>
       h(
         "button",
-        { type: "button", onClick, style: { ...css, ...extra } },
+        {
+          type: "button",
+          onClick,
+          style: { ...ctl, cursor: "pointer", ...extra },
+        },
         label,
       );
-    const row = (...kids: unknown[]) =>
+    const primary = {
+      background: "var(--spice-button)",
+      color: "var(--spice-main)",
+      border: "none",
+      fontWeight: 700,
+    };
+    const hint = (text: string) =>
+      h("div", { style: { opacity: 0.7, marginTop: 4 } }, text);
+    const section = (title: string, ...kids: unknown[]) =>
+      h(
+        "section",
+        { "data-wtg-section": "1", style: { margin: "0 0 20px" } },
+        h(
+          "h3",
+          { style: { margin: "0 0 8px", fontSize: 15, fontWeight: 700 } },
+          title,
+        ),
+        ...kids,
+      );
+
+    const sourceSelect = h(
+      "select",
+      {
+        "aria-label": t("sourceFirst"),
+        value: settings.sourceOrder[0],
+        style: { ...ctl, width: "100%" },
+        onChange: (e: any) =>
+          update({
+            sourceOrder:
+              validSourceOrder(
+                promoteSource(settings.sourceOrder, e.target.value as SourceId),
+              ) ?? settings.sourceOrder,
+          }),
+      },
+      SOURCE_IDS.map((id) =>
+        h("option", { key: id, value: id }, t(`source_${id}` as PanelKey)),
+      ),
+    );
+    const langSelect = h(
+      "select",
+      {
+        "aria-label": t("secLang"),
+        value: settings.lang,
+        style: { ...ctl, width: "100%" },
+        onChange: (e: any) => update({ lang: e.target.value as LangSetting }),
+      },
+      h("option", { value: "auto" }, t("langAuto")),
+      h("option", { value: "tr" }, "Türkçe"),
+      h("option", { value: "en" }, "English"),
+    );
+    const manualInput = h("input", {
+      type: "text",
+      "aria-label": t("secTrack"),
+      style: { ...ctl, flex: 1, minWidth: 0 },
+      placeholder: uri ? t("manualPlaceholder") : t("noTrack"),
+      disabled: !uri,
+      value: manual !== "" ? manual : (saved ?? ""),
+      onChange: (e: any) => setManual(e.target.value),
+    });
+    const onSave = () => {
+      const v = (manual !== "" ? manual : (saved ?? "")).trim();
+      if (!uri) return;
+      if (v) setManualGenre(storage, uri, v);
+      else removeManualGenre(storage, uri);
+      setManual("");
+      hooks.changed();
+      rerender();
+    };
+
+    return h(
+      "div",
+      {
+        "data-wtg-panel": "1",
+        style: {
+          color: "var(--spice-text)",
+          width: 520,
+          maxWidth: "100%",
+          fontSize: 13,
+          lineHeight: 1.5,
+        },
+      },
+      section(t("secSource"), sourceSelect, hint(t("descSource"))),
+      section(t("secLang"), langSelect, hint(t("descLang"))),
+      section(
+        t("secTrack"),
+        h(
+          "div",
+          { style: { display: "flex", gap: 8 } },
+          manualInput,
+          btn(t("save"), onSave, primary),
+        ),
+        hint(t("descTrack")),
+        h(
+          "div",
+          { style: { marginTop: 12 } },
+          btn(t("refreshNow"), () => hooks.refreshNow()),
+          hint(t("descRefresh")),
+        ),
+      ),
       h(
         "div",
         {
           style: {
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            margin: "8px 0",
+            borderTop: "1px solid var(--spice-button-disabled)",
+            paddingTop: 16,
           },
         },
-        ...kids,
-      );
-    const sourceSelects = SOURCE_IDS.map((_, i) =>
-      h(
-        "select",
-        {
-          key: i,
-          "aria-label": `${t("position")} ${i + 1}`,
-          value: settings.sourceOrder[i],
-          style: css,
-          onChange: (e: any) => {
-            // swap with the slot that already holds the chosen source -> stays a permutation
-            const next = [...settings.sourceOrder] as SourceId[];
-            const chosen = e.target.value as SourceId;
-            const j = next.indexOf(chosen);
-            if (j >= 0) next[j] = next[i];
-            next[i] = chosen;
-            update({
-              sourceOrder: validSourceOrder(next) ?? settings.sourceOrder,
-            });
-          },
-        },
-        SOURCE_IDS.map((id) =>
-          h("option", { key: id, value: id }, t(`source_${id}` as PanelKey)),
-        ),
-      ),
-    );
-
-    return h(
-      "div",
-      { style: { color: "var(--spice-text)", minWidth: 320 } },
-      row(h("strong", null, `${t("version")}: ${PACKAGE_VERSION}`)),
-      h("div", null, t("sourceOrder")),
-      row(...sourceSelects),
-      row(
-        h("label", null, t("language")),
-        h(
-          "select",
-          {
-            "aria-label": t("language"),
-            value: settings.lang,
-            style: css,
-            onChange: (e: any) =>
-              update({ lang: e.target.value as LangSetting }),
-          },
-          h("option", { value: "auto" }, t("langAuto")),
-          h("option", { value: "tr" }, "Türkçe"),
-          h("option", { value: "en" }, "English"),
-        ),
-      ),
-      h("div", null, t("manualTitle")),
-      row(
-        h("input", {
-          type: "text",
-          style: { ...css, flex: 1 },
-          placeholder: uri ? t("manualPlaceholder") : t("noTrack"),
-          disabled: !uri,
-          value: manual !== "" ? manual : (saved ?? ""),
-          onChange: (e: any) => setManual(e.target.value),
-        }),
-        btn(t("save"), () => {
-          const v = manual !== "" ? manual : (saved ?? "");
-          if (setManualGenre(storage, uri, v)) {
-            setManual("");
-            hooks.changed();
-            rerender();
+        btn(armed ? t("confirm") : t("clearCache"), () => {
+          if (!armed) {
+            setArmed(true);
+            setTimeout(() => setArmed(false), 4000);
+            return;
           }
-        }),
-        btn(t("remove"), () => {
-          removeManualGenre(storage, uri);
-          setManual("");
+          setArmed(false);
+          clearWtgCache(storage);
           hooks.changed();
-          rerender();
         }),
+        hint(t("descClear")),
       ),
-      row(
-        btn(t("refreshNow"), () => hooks.refreshNow()),
-        btn(
-          armed === "cache" ? t("confirm") : t("clearCache"),
-          confirmThen("cache", () => {
-            clearWtgCache(storage);
-            hooks.changed();
-          }),
-        ),
-        btn(
-          armed === "reset" ? t("confirm") : t("resetDefaults"),
-          confirmThen("reset", () => {
-            resetSettings(storage);
-            hooks.changed();
-            rerender();
-          }),
-        ),
+      h(
+        "div",
+        { style: { opacity: 0.5, fontSize: 11, marginTop: 20 } },
+        `${t("version")} ${PACKAGE_VERSION}`,
       ),
     );
   };
@@ -212,7 +234,14 @@ export function registerSettingsButton(hooks: PanelHooks): boolean {
   try {
     const Btn = S()?.Topbar?.Button;
     if (typeof Btn !== "function") return false;
-    new Btn("WTG", "settings", () => openPanel(hooks));
+    const icon = S()?.SVGIcons?.settings;
+    if (!icon) return false;
+    const b = new Btn(TOPBAR_TITLE, icon, () => openPanel(hooks));
+    try {
+      const el = b?.element as HTMLElement | undefined;
+      el?.setAttribute?.("title", TOPBAR_TITLE);
+      el?.setAttribute?.("aria-label", TOPBAR_TITLE);
+    } catch {}
     return true;
   } catch {
     return false;

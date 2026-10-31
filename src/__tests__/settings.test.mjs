@@ -270,6 +270,7 @@ test("panel: uses PopupModal.display, shows package.json version, survives missi
   };
   g.Spicetify = {
     React: R,
+    SVGIcons: { settings: "<svg/>" },
     PopupModal: { display: (o) => (shown = o) },
     Topbar: {
       Button: class {
