@@ -249,66 +249,78 @@ export function tr(text: string, lang: Lang): string {
 type PanelKey =
   | "title"
   | "version"
-  | "sourceOrder"
-  | "language"
+  | "secSource"
+  | "descSource"
+  | "secLang"
+  | "descLang"
+  | "secTrack"
+  | "descTrack"
   | "langAuto"
-  | "manualTitle"
   | "manualPlaceholder"
   | "save"
-  | "remove"
   | "noTrack"
   | "refreshNow"
+  | "descRefresh"
   | "clearCache"
-  | "resetDefaults"
+  | "descClear"
+  | "tipRightClick"
   | "confirm"
-  | "done"
   | "source_discogs"
   | "source_musicbrainz"
   | "source_itunes"
-  | "position";
+  | "sourceFirst";
 
 const PANEL: Record<Lang, Record<PanelKey, string>> = {
   en: {
-    title: "WhatsThatGenre settings",
+    title: "What's That Genre? Plus",
     version: "Version",
-    sourceOrder: "Source order",
-    language: "Language",
-    langAuto: "Auto (Spotify language)",
-    manualTitle: "Manual genre for current track",
+    tipRightClick: "Right-click the genre row to open this panel any time.",
+    secSource: "Where to look for the genre?",
+    descSource:
+      "The first place we ask; the others are used if it has no answer.",
+    secLang: "Language",
+    descLang: "Language of this panel and the notes under the genre.",
+    secTrack: "This track",
+    descTrack:
+      "Type your own genre for the song playing now. Leave empty to remove it.",
+    langAuto: "Same as Spotify",
     manualPlaceholder: "e.g. Post-Rock",
     save: "Save",
-    remove: "Remove",
     noTrack: "No track playing",
-    refreshNow: "Refresh now",
+    refreshNow: "Refresh",
+    descRefresh: "Look up the genre of the current song again.",
     clearCache: "Clear cache",
-    resetDefaults: "Reset to defaults",
+    descClear: "Forget every genre found so far. Your own genres are kept.",
     confirm: "Click again to confirm",
-    done: "Done",
     source_discogs: "Discogs",
     source_musicbrainz: "MusicBrainz",
     source_itunes: "iTunes",
-    position: "Priority",
+    sourceFirst: "First source",
   },
   tr: {
-    title: "WhatsThatGenre ayarları",
+    title: "What's That Genre? Plus",
     version: "Sürüm",
-    sourceOrder: "Kaynak sırası",
-    language: "Dil",
-    langAuto: "Otomatik (Spotify dili)",
-    manualTitle: "Çalan parça için manuel tür",
+    tipRightClick:
+      "Tür satırına sağ tıklayarak bu paneli her zaman açabilirsin.",
+    secSource: "Türü nereden arasın?",
+    descSource: "Önce burada aranır; cevap yoksa diğerlerine bakılır.",
+    secLang: "Dil",
+    descLang: "Bu panelin ve türün altındaki notların dili.",
+    secTrack: "Bu parça",
+    descTrack: "Çalan şarkı için kendi türünü yaz. Boş bırakırsan silinir.",
+    langAuto: "Spotify ile aynı",
     manualPlaceholder: "örn. Post-Rock",
     save: "Kaydet",
-    remove: "Kaldır",
     noTrack: "Çalan parça yok",
-    refreshNow: "Şimdi yenile",
-    clearCache: "Cache temizle",
-    resetDefaults: "Varsayılana dön",
+    refreshNow: "Yenile",
+    descRefresh: "Çalan şarkının türünü yeniden ara.",
+    clearCache: "Önbelleği temizle",
+    descClear: "Bulunan tüm türler unutulur. Kendi yazdıkların kalır.",
     confirm: "Onaylamak için tekrar tıkla",
-    done: "Tamam",
     source_discogs: "Discogs",
     source_musicbrainz: "MusicBrainz",
     source_itunes: "iTunes",
-    position: "Öncelik",
+    sourceFirst: "İlk kaynak",
   },
 };
 

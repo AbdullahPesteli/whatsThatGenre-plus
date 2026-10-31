@@ -47,7 +47,10 @@
   color: var(--text-subdued);
   margin-right: 8px;
   white-space: nowrap;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   word-break: keep-all;
   overflow-wrap: normal;
 
@@ -201,7 +204,7 @@
 
 .genre-source-badge {
   align-self: center;
-  flex: 0 0 auto;
+  flex: 0 0 auto; /* flex-shrink:0 - badge is never clipped */
   white-space: nowrap;
   margin-left: 2px;
   padding: 1px 4px;

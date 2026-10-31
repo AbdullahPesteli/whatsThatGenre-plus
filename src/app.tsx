@@ -1,5 +1,10 @@
+import { findTrackInfoHost } from "./host";
+import { anchorTop, barWidthCeiling, placeRowGeo, rowWidth } from "./layout";
 import "./styles.scss";
-import { registerSettingsButton } from "./settings/panel";
+import {
+  attachSettingsGestures,
+  registerSettingsButton,
+} from "./settings/panel";
 import { currentLang, loadSettings, tr } from "./settings/store";
 import type { MusicalystData } from "./types/musicalyst";
 import {
@@ -24,7 +29,7 @@ let cachedGenres: string[] = [];
 let lastTrackKey = "";
 
 /** Upper bound for the genre row, in px. The real width is measured from the host (see layoutGenreContainer). */
-const MAX_GENRE_WIDTH = 340;
+const MAX_GENRE_WIDTH = 640;
 const MIN_GENRE_WIDTH = 120;
 
 let hasWarnedAboutMissingHost = false;
@@ -58,12 +63,14 @@ export default async function main() {
   const genreContainer = document.createElement("div");
   genreContainer.className = "main-trackInfo-genres";
 
+  const panelHooks = {
+    storage: safeStorage,
+    refreshNow: () => forceRefreshHook?.(),
+    changed: () => void refresh(),
+  };
+  attachSettingsGestures(genreContainer, panelHooks);
   if (!settingsButtonRegistered)
-    settingsButtonRegistered = registerSettingsButton({
-      storage: safeStorage,
-      refreshNow: () => forceRefreshHook?.(),
-      changed: () => void refresh(),
-    });
+    settingsButtonRegistered = registerSettingsButton(panelHooks);
 
   const refresh = async () => {
     if (disposed) return;
@@ -239,51 +246,6 @@ function safeStorage() {
 }
 
 /**
- * Locate the element the genre list should be attached to.
- *
- * The previous implementation waited for `.main-nowPlayingWidget-trackInfo`, a
- * class that current Spotify releases no longer render, so it always timed out
- * and the extension silently displayed nothing. Resolving structurally keeps
- * this working across client updates.
- */
-function findTrackInfoHost(): Element | null {
-  const scope =
-    document.querySelector('[data-testid="now-playing-widget"]') ??
-    document.querySelector('[data-testid="now-playing-bar"]');
-  // Neither marker present: refuse to guess. Never fall back to document.body.
-  if (!scope) return null;
-
-  // Preferred: the container holding both the track and the artist links.
-  const trackLink =
-    scope.querySelector<HTMLAnchorElement>('a[href*="/track/"]');
-  const artistLink = scope.querySelector<HTMLAnchorElement>(
-    'a[href*="/artist/"]',
-  );
-  if (trackLink && artistLink) {
-    let node: Element = trackLink;
-    while (
-      node.parentElement &&
-      node.parentElement !== scope &&
-      !node.parentElement.contains(artistLink)
-    ) {
-      node = node.parentElement;
-    }
-    return node.parentElement && node.parentElement !== scope
-      ? node.parentElement
-      : node;
-  }
-
-  // Fallback: the first child that is not the cover slot and carries text.
-  for (const child of Array.from(scope.children)) {
-    if ((child.getAttribute("data-testid") ?? "").startsWith("CoverSlot"))
-      continue;
-    if ((child.textContent ?? "").trim()) return child;
-  }
-
-  return scope;
-}
-
-/**
  * The byline column is a grid, so a child added to it would trigger implicit
  * placement into a new column and squeeze the title and artist to one character
  * each. The row is therefore taken out of flow (absolute) and positioned from
@@ -297,6 +259,7 @@ async function mountGenreContainer(genreContainer: HTMLDivElement) {
   if (!host) {
     if (!hasWarnedAboutMissingHost) {
       hasWarnedAboutMissingHost = true;
+      console.warn("[WTG] host: none of the selectors matched");
       Spicetify.showNotification(
         "What's That Genre? Plus: could not find the now-playing track info.",
         true,
@@ -345,38 +308,79 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
   const limitRight = widget
     ? widget.getBoundingClientRect().right
     : hostRect.right;
+  const barEl = document.querySelector('[data-testid="playback-progressbar"]');
+  const barRect = barEl ? barEl.getBoundingClientRect() : null;
+  const ceiling = barWidthCeiling(hostRect, barRect);
   const available = Math.floor(
-    Math.max(hostRect.width, limitRight - hostRect.left),
+    ceiling !== null
+      ? ceiling
+      : Math.max(hostRect.width, limitRight - hostRect.left),
   );
-  const width = Math.min(MAX_GENRE_WIDTH, Math.max(MIN_GENRE_WIDTH, available));
+  const badgeEl = genreContainer.querySelector(
+    ".genre-source-badge",
+  ) as HTMLElement | null;
+  const badgeW = badgeEl
+    ? Math.ceil(badgeEl.getBoundingClientRect().width) + 4
+    : 0;
+  const { width } = rowWidth(
+    available,
+    badgeW,
+    MIN_GENRE_WIDTH,
+    MAX_GENRE_WIDTH,
+  );
   genreContainer.style.width = `${width}px`;
   genreContainer.style.maxWidth = `${width}px`;
-  genreContainer.style.top = `${host.offsetHeight}px`;
-  genreContainer.style.visibility = "";
+  const anchorParent =
+    (genreContainer.offsetParent as HTMLElement | null) || host;
+  const parentRect = anchorParent.getBoundingClientRect();
+  const parentTop = parentRect.top + (anchorParent.clientTop || 0);
+  const defaultTop = anchorTop(hostRect, parentTop);
+  genreContainer.style.top = `${defaultTop}px`;
 
   const rowHeight = genreContainer.offsetHeight;
-  const rowTop = hostRect.bottom;
-  const bar = document.querySelector('[data-testid="playback-progressbar"]');
-  const barTop = bar
-    ? bar.getBoundingClientRect().top
-    : Number.POSITIVE_INFINITY;
-  let clipped = false;
+  const barTop = barRect ? barRect.top : Number.POSITIVE_INFINITY;
+  let clipBottom = Number.POSITIVE_INFINITY;
   for (
     let el = host.parentElement;
     el && el !== document.body;
     el = el.parentElement
   ) {
     if (getComputedStyle(el).overflow !== "visible") {
-      clipped = rowTop + rowHeight > el.getBoundingClientRect().bottom + 0.5;
+      clipBottom = el.getBoundingClientRect().bottom;
       break;
     }
   }
-  const overlapsBar = rowTop + rowHeight > barTop + 0.5;
-  if (overlapsBar || clipped) {
+  const geo = placeRowGeo({
+    host: hostRect,
+    bar: barRect,
+    rowHeight,
+    clipBottom,
+  });
+  const placed = {
+    top: geo.top - parentTop,
+    hidden: geo.hidden,
+    action: geo.action,
+    overlaps: geo.overlaps,
+  };
+  console.info("[WTG] layout", {
+    height: rowHeight,
+    top: placed.top,
+    barTop,
+    overlaps: placed.overlaps,
+    action: placed.action,
+  });
+  genreContainer.style.top = `${placed.top}px`;
+  if (placed.hidden) {
+    // LAST RESORT: row cannot fit even after shifting up; fall back to tooltip.
     genreContainer.style.visibility = "hidden";
+    genreContainer.setAttribute("data-wtg-hidden", "1");
     host.title = genreContainer.textContent || "";
-  } else if (host.title && host.title === (genreContainer.textContent || "")) {
-    host.removeAttribute("title");
+  } else {
+    genreContainer.style.visibility = "";
+    genreContainer.removeAttribute("data-wtg-hidden");
+    if (host.title && host.title === (genreContainer.textContent || "")) {
+      host.removeAttribute("title");
+    }
   }
   updateOverflow(genreContainer);
 }
