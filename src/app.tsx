@@ -1,4 +1,5 @@
 import { findTrackInfoHost } from "./host";
+import { placeRow } from "./layout";
 import "./styles.scss";
 import { registerSettingsButton } from "./settings/panel";
 import { currentLang, loadSettings, tr } from "./settings/store";
@@ -309,31 +310,49 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
   genreContainer.style.width = `${width}px`;
   genreContainer.style.maxWidth = `${width}px`;
   genreContainer.style.top = `${host.offsetHeight}px`;
-  genreContainer.style.visibility = "";
 
   const rowHeight = genreContainer.offsetHeight;
-  const rowTop = hostRect.bottom;
   const bar = document.querySelector('[data-testid="playback-progressbar"]');
   const barTop = bar
     ? bar.getBoundingClientRect().top
     : Number.POSITIVE_INFINITY;
-  let clipped = false;
+  let clipBottom = Number.POSITIVE_INFINITY;
   for (
     let el = host.parentElement;
     el && el !== document.body;
     el = el.parentElement
   ) {
     if (getComputedStyle(el).overflow !== "visible") {
-      clipped = rowTop + rowHeight > el.getBoundingClientRect().bottom + 0.5;
+      clipBottom = el.getBoundingClientRect().bottom;
       break;
     }
   }
-  const overlapsBar = rowTop + rowHeight > barTop + 0.5;
-  if (overlapsBar || clipped) {
+  const placed = placeRow({
+    hostHeight: host.offsetHeight,
+    hostTop: hostRect.top,
+    rowHeight,
+    barTop,
+    clipBottom,
+  });
+  console.info("[WTG] layout", {
+    height: rowHeight,
+    top: placed.top,
+    barTop,
+    overlaps: placed.overlaps,
+    action: placed.action,
+  });
+  genreContainer.style.top = `${placed.top}px`;
+  if (placed.hidden) {
+    // LAST RESORT: row cannot fit even after shifting up; fall back to tooltip.
     genreContainer.style.visibility = "hidden";
+    genreContainer.setAttribute("data-wtg-hidden", "1");
     host.title = genreContainer.textContent || "";
-  } else if (host.title && host.title === (genreContainer.textContent || "")) {
-    host.removeAttribute("title");
+  } else {
+    genreContainer.style.visibility = "";
+    genreContainer.removeAttribute("data-wtg-hidden");
+    if (host.title && host.title === (genreContainer.textContent || "")) {
+      host.removeAttribute("title");
+    }
   }
   updateOverflow(genreContainer);
 }
