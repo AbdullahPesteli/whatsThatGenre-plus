@@ -1,4 +1,6 @@
 import "./styles.scss";
+import { registerSettingsButton } from "./settings/panel";
+import { currentLang, loadSettings, tr } from "./settings/store";
 import type { MusicalystData } from "./types/musicalyst";
 import {
   MSG_LOOKING,
@@ -33,6 +35,10 @@ let teardownPrevious: (() => void) | undefined;
 /** Inline `position` the host had before we forced it to "relative" (restored on cleanup). */
 let hostRestore: { host: HTMLElement; position: string } | undefined;
 let disposed = false;
+let settingsButtonRegistered = false;
+/** Set by injectGenres: re-search the current track, ignoring the cache. */
+let forceRefreshHook: (() => void) | undefined;
+const T = (text: string) => tr(text, currentLang(safeStorage()));
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 export default async function main() {
@@ -51,6 +57,13 @@ export default async function main() {
 
   const genreContainer = document.createElement("div");
   genreContainer.className = "main-trackInfo-genres";
+
+  if (!settingsButtonRegistered)
+    settingsButtonRegistered = registerSettingsButton({
+      storage: safeStorage,
+      refreshNow: () => forceRefreshHook?.(),
+      changed: () => void refresh(),
+    });
 
   const refresh = async () => {
     if (disposed) return;
@@ -125,11 +138,12 @@ async function injectGenres(genreContainer: HTMLDivElement) {
   const durationMs =
     data.item.duration?.milliseconds || Number(metadata.duration || 0);
   const artistId = metadata.artist_uri?.split(":")[2] || "";
+  const trackUri = data.item.uri;
   const trackKey = `${data.item.uri}|${title}|${artist}|${album}`;
   lastTrackKey = trackKey;
 
   genreContainer.className = "main-trackInfo-genres";
-  genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
+  genreContainer.innerHTML = `<span class="genre-loading">${T(MSG_LOOKING)}</span>`;
   await mountGenreContainer(genreContainer);
   // daily self-test (max 1/day, 2 fixed requests, no user data)
   void runCanary({
@@ -139,18 +153,24 @@ async function injectGenres(genreContainer: HTMLDivElement) {
 
   const run = async (force = false) => {
     const outcome = await lookupGenres(
-      { artistId, title, artist, album, durationMs },
+      { artistId, title, artist, album, durationMs, uri: trackUri },
       {
         fetch: (url, init) => fetch(url, init),
         storage: safeStorage(),
         force,
+        sourceOrder: loadSettings(safeStorage()).sourceOrder,
       },
     );
     if (disposed || lastTrackKey !== trackKey) return;
     await showOutcome(genreContainer, outcome, () => {
-      genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
+      genreContainer.innerHTML = `<span class="genre-loading">${T(MSG_LOOKING)}</span>`;
       void run(true);
     });
+  };
+  forceRefreshHook = () => {
+    if (disposed || lastTrackKey !== trackKey) return;
+    genreContainer.innerHTML = `<span class="genre-loading">${T(MSG_LOOKING)}</span>`;
+    void run(true);
   };
   await run();
 }
@@ -171,7 +191,7 @@ async function showOutcome(
     if (outcome.label) {
       const note = document.createElement("span");
       note.className = "genre-state-note";
-      note.textContent = outcome.label;
+      note.textContent = T(outcome.label);
       genreContainer.appendChild(note);
     }
     if (outcome.canRetry)
@@ -190,7 +210,7 @@ async function showOutcome(
   const span = document.createElement("span");
   span.className =
     outcome.status === "error" ? "genre-error" : "genre-unavailable";
-  span.textContent = outcome.message;
+  span.textContent = T(outcome.message);
   genreContainer.appendChild(span);
   genreContainer.appendChild(retryButton(outcome, retry));
   layoutGenreContainer(genreContainer);
@@ -202,8 +222,9 @@ function retryButton(
 ): HTMLElement {
   const button = document.createElement("a");
   button.className = "genre-retry";
-  button.textContent =
-    (outcome as { retryLabel?: string }).retryLabel ?? MSG_RETRY;
+  button.textContent = T(
+    (outcome as { retryLabel?: string }).retryLabel ?? MSG_RETRY,
+  );
   button.setAttribute("role", "button");
   button.addEventListener("click", retry);
   return button;

@@ -45,6 +45,12 @@ declare namespace Spicetify {
     function hide(): void;
   }
 
+  namespace Topbar {
+    class Button {
+      constructor(label: string, icon: string, onClick: () => void);
+    }
+  }
+
   namespace CosmosAsync {
     function get<T = unknown>(url: string): Promise<T>;
   }

@@ -5,6 +5,17 @@ All notable changes to **What's That Genre? Plus** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.0] - 2026-10-31
+
+### Added
+
+- Topbar settings panel + PopupModal; source order selection; manual genre assign/remove.
+- UI language selection (auto/tr/en), EN + TR strings.
+
+### Changed
+
+- Panel actions: "refresh now", "clear cache" and "reset to defaults".
+
 ## [2.1.0] - 2026-10-31
 
 ### Added
