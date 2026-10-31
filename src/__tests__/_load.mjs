@@ -6,8 +6,14 @@ const require = createRequire(import.meta.url);
 const esbuild = require("esbuild");
 const here = path.dirname(fileURLToPath(import.meta.url));
 const out = esbuild.buildSync({
-	entryPoints: [path.join(here, "../utils.ts")],
-	bundle: true, format: "esm", platform: "node", write: false, target: "es2022",
+  entryPoints: [path.join(here, "../utils.ts")],
+  bundle: true,
+  format: "esm",
+  platform: "node",
+  write: false,
+  target: "es2022",
 });
 const code = out.outputFiles[0].text;
-export const utils = await import("data:text/javascript;base64," + Buffer.from(code).toString("base64"));
+export const utils = await import(
+  "data:text/javascript;base64," + Buffer.from(code).toString("base64")
+);
