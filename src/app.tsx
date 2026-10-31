@@ -1,5 +1,5 @@
 import { findTrackInfoHost } from "./host";
-import { placeRow } from "./layout";
+import { anchorTop, placeRow, rowWidth } from "./layout";
 import "./styles.scss";
 import { registerSettingsButton } from "./settings/panel";
 import { currentLang, loadSettings, tr } from "./settings/store";
@@ -306,10 +306,26 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
   const available = Math.floor(
     Math.max(hostRect.width, limitRight - hostRect.left),
   );
-  const width = Math.min(MAX_GENRE_WIDTH, Math.max(MIN_GENRE_WIDTH, available));
+  const badgeEl = genreContainer.querySelector(
+    ".genre-source-badge",
+  ) as HTMLElement | null;
+  const badgeW = badgeEl
+    ? Math.ceil(badgeEl.getBoundingClientRect().width) + 4
+    : 0;
+  const { width } = rowWidth(
+    available,
+    badgeW,
+    MIN_GENRE_WIDTH,
+    MAX_GENRE_WIDTH,
+  );
   genreContainer.style.width = `${width}px`;
   genreContainer.style.maxWidth = `${width}px`;
-  genreContainer.style.top = `${host.offsetHeight}px`;
+  const anchorParent =
+    (genreContainer.offsetParent as HTMLElement | null) || host;
+  const parentRect = anchorParent.getBoundingClientRect();
+  const parentTop = parentRect.top + (anchorParent.clientTop || 0);
+  const defaultTop = anchorTop(hostRect, parentTop);
+  genreContainer.style.top = `${defaultTop}px`;
 
   const rowHeight = genreContainer.offsetHeight;
   const bar = document.querySelector('[data-testid="playback-progressbar"]');
@@ -328,8 +344,8 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     }
   }
   const placed = placeRow({
-    hostHeight: host.offsetHeight,
-    hostTop: hostRect.top,
+    hostHeight: defaultTop,
+    hostTop: parentTop,
     rowHeight,
     barTop,
     clipBottom,

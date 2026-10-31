@@ -229,14 +229,30 @@ export function openPanel(hooks: PanelHooks): void {
   }
 }
 
-/** Registers the Topbar button; silently skipped when the API is absent. */
+/** settings -> gear -> equalizer -> first known key; undefined when none. */
+export function pickSettingsIcon(icons: any): string | undefined {
+  if (!icons || typeof icons !== "object") return undefined;
+  for (const k of ["settings", "gear", "equalizer"])
+    if (icons[k]) return icons[k];
+  const first = Object.keys(icons).find((k) => icons[k]);
+  return first ? icons[first] : undefined;
+}
+
+/** Registers the Topbar button (icon fallback chain, then Menu.Item); never throws. */
 export function registerSettingsButton(hooks: PanelHooks): boolean {
   try {
-    const Btn = S()?.Topbar?.Button;
-    if (typeof Btn !== "function") return false;
-    const icon = S()?.SVGIcons?.settings;
-    if (!icon) return false;
-    const b = new Btn(TOPBAR_TITLE, icon, () => openPanel(hooks));
+    const sp = S();
+    const Btn = sp?.Topbar?.Button;
+    const icon0 = pickSettingsIcon(sp?.SVGIcons);
+    if (typeof Btn !== "function" || !icon0) {
+      if (typeof sp?.Menu?.Item === "function") {
+        new sp.Menu.Item(TOPBAR_TITLE, false, () => openPanel(hooks));
+        return true;
+      }
+      console.info("[WTG] settings button: no API");
+      return false;
+    }
+    const b = new Btn(TOPBAR_TITLE, icon0, () => openPanel(hooks));
     try {
       const el = b?.element as HTMLElement | undefined;
       el?.setAttribute?.("title", TOPBAR_TITLE);

@@ -41,3 +41,36 @@ export function placeRow(i: RowPlacementInput): RowPlacement {
     ? { top, hidden: true, action: "hidden", overlaps }
     : { top, hidden: false, action: "shifted", overlaps };
 }
+
+/** Gap between the host's bottom edge and the genre row, px. */
+export const HOST_GAP = 2;
+/** Minimum width reserved for genre labels next to the badge, px. */
+export const MIN_TAGS_WIDTH = 48;
+
+/**
+ * `top` for an absolutely positioned row so its top edge sits at
+ * hostRect.bottom + HOST_GAP in viewport space, expressed in the coordinate
+ * space of its offset parent (parentTop = that parent's viewport top, incl. border).
+ */
+export function anchorTop(
+  hostRect: { bottom: number },
+  parentTop: number,
+  gap = HOST_GAP,
+): number {
+  return hostRect.bottom + gap - parentTop;
+}
+
+/**
+ * Row width: clamp(available) but never below badge + MIN_TAGS_WIDTH, so the
+ * source badge always fits. Genre labels get whatever is left (they ellipsize).
+ */
+export function rowWidth(
+  available: number,
+  badgeWidth: number,
+  min: number,
+  max: number,
+): { width: number; tagsWidth: number } {
+  const floor = Math.max(min, badgeWidth + MIN_TAGS_WIDTH);
+  const width = Math.max(floor, Math.min(max, available));
+  return { width, tagsWidth: Math.max(0, width - badgeWidth) };
+}
