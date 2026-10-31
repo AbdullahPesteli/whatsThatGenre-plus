@@ -16,6 +16,8 @@ const json = (body, status = 200, headers = {}) => ({
   headers: { get: (n) => headers[n] ?? null },
   json: async () => body,
 });
+// health bookkeeping (wtg:health:v1) is not cache data
+const dataKeys = (s) => [...s.m.keys()].filter((k) => k !== "wtg:health:v1");
 const noSleep = async () => {};
 const track = (artist, title, extra = {}) => ({
   artist,
@@ -45,7 +47,7 @@ test("cache key empty when nothing survives normalisation; nothing written", asy
     storage: s,
     sleep: noSleep,
   });
-  assert.equal(s.m.size, 0);
+  assert.equal(dataKeys(s).length, 0);
 });
 test("normalizeText: NFKD folds accents, keeps letters/digits of any script", () => {
   assert.equal(u.normalizeText("Beyoncé & Jay-Z"), "beyonce and jay z");
@@ -96,7 +98,7 @@ test("tribute band end-to-end: not shown, not cached", async () => {
   const f = async (url) =>
     url.includes("itunes")
       ? json({ results: [apple("Radiohead Tribute Band", "Creep")] })
-      : json({ results: [] });
+      : json({ results: [], recordings: [] });
   const r = await u.lookupGenres(track("Radiohead", "Creep"), {
     fetch: f,
     storage: s,
@@ -104,7 +106,7 @@ test("tribute band end-to-end: not shown, not cached", async () => {
   });
   assert.equal(r.status, "not_found");
   // cache v2: only a short-lived negative record may exist, never a genre record
-  assert.ok([...s.m.values()].every((v) => JSON.parse(v).kind === "neg"));
+  assert.ok(dataKeys(s).every((k) => JSON.parse(s.m.get(k)).kind === "neg"));
 });
 test("low-confidence result is returned but never cached; high-confidence is cached", async () => {
   const s = mem();
@@ -118,7 +120,7 @@ test("low-confidence result is returned but never cached; high-confidence is cac
     sleep: noSleep,
   });
   assert.equal(r.status, "ok");
-  assert.equal(s.m.size, 0);
+  assert.equal(dataKeys(s).length, 0);
   const hi = async (url) =>
     json({
       results: [
@@ -134,7 +136,7 @@ test("low-confidence result is returned but never cached; high-confidence is cac
     storage: s,
     sleep: noSleep,
   });
-  assert.equal(s.m.size, 1);
+  assert.equal(dataKeys(s).length, 1);
 });
 
 // ---- B3: threshold pinned
@@ -206,7 +208,7 @@ test("fetch rejects -> connection error, not 'Genre not found'", async () => {
 });
 test("empty results -> not_found (distinct from error)", async () => {
   const r = await u.lookupGenres(track("Queen", "x"), {
-    fetch: async () => json({ results: [] }),
+    fetch: async () => json({ results: [], recordings: [] }),
     storage: mem(),
     sleep: noSleep,
   });
@@ -255,7 +257,7 @@ test("Discogs requests carry an identifying User-Agent", async () => {
   await u.lookupGenres(track("Queen", "x"), {
     fetch: async (url, init) => (
       seen.push([url, init.headers]),
-      json({ results: [] })
+      json({ results: [], recordings: [] })
     ),
     storage: mem(),
     sleep: noSleep,

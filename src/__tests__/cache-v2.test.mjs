@@ -50,7 +50,7 @@ const discogsHit = async () =>
       },
     ],
   });
-const empty = async () => json({ results: [] });
+const empty = async () => json({ results: [], recordings: [] });
 const counting = (impl) => {
   const f = async (...a) => {
     f.calls++;
@@ -349,7 +349,11 @@ test("index is written debounced under wtg:v2:idx; v1 prefix never written", asy
   assert.equal(s.m.has(u.CACHE_INDEX_KEY), false);
   await new Promise((r) => setTimeout(r, u.INDEX_DEBOUNCE_MS + 100));
   assert.ok(JSON.parse(s.m.get(u.CACHE_INDEX_KEY))[key()]);
-  assert.ok([...s.m.keys()].every((k) => k.startsWith("wtg:v2:")));
+  assert.ok(
+    [...s.m.keys()].every(
+      (k) => k.startsWith("wtg:v2:") || k === "wtg:health:v1",
+    ),
+  );
 });
 
 test("future schema (v>2) record is neither read nor deleted", async () => {

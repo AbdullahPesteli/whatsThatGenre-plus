@@ -6,6 +6,23 @@
  * Behaviour is preserved; see issue #2.
  */
 
+import { takeSlot, resetBudgets } from "./sources/budget";
+import {
+  recordHealth,
+  sourceAllowed,
+  canaryDue,
+  markCanary,
+  type HealthCode,
+} from "./sources/health";
+import {
+  MB_USER_AGENT,
+  MB_MAX_RELEASE_LOOKUPS,
+  mbSearchUrl,
+  mbReleaseUrl,
+  parseMbSearch,
+  parseMbGenres,
+} from "./sources/musicbrainz";
+
 /** "synth-pop" / "post grunge" -> "Synth-Pop" / "PostGrunge" */
 export function camelize(value: string): string {
   return value.replace(/(^\w{1})|([\s-]+\w{1})/g, (match) =>
@@ -106,7 +123,7 @@ export const CACHE_MIN_CONFIDENCE = 0.95;
 
 export type GenreResult = {
   genres: string[];
-  source: "Discogs" | "Apple Music";
+  source: "Discogs" | "MusicBrainz" | "Apple Music";
   /** 0..1; low-confidence results are shown but never cached. */
   confidence: number;
 };
@@ -166,6 +183,24 @@ export const MSG_UPDATE_FAILED = "Update failed";
 export const MSG_RETRY = "Try again";
 export const MSG_SEARCH_AGAIN = "Search again";
 export const EXTENSION_VERSION = "2.0.1";
+
+/** User-facing source name (stored value "Apple Music" is shown as iTunes). */
+export function sourceLabel(source: string): string {
+  return source === "Apple Music" ? "iTunes" : source;
+}
+
+/** Badge text + tooltip; low confidence gets a leading `~`. */
+export function sourceBadge(result: { source: string; confidence: number }): {
+  text: string;
+  title: string;
+} {
+  const label = sourceLabel(result.source);
+  const low = result.confidence < CACHE_MIN_CONFIDENCE;
+  return {
+    text: (low ? "~" : "") + label,
+    title: `Source: ${label}${low ? " (low confidence)" : ""}`,
+  };
+}
 
 /** NFKD + strip combining marks, lowercase, keep any-script letters and digits. */
 export function normalizeText(value: string): string {
@@ -380,10 +415,13 @@ export async function fetchJson(
   url: string,
   deps: LookupDeps,
   headers?: Record<string, string>,
+  source?: string,
 ): Promise<FetchOutcome> {
   const sleep =
     deps.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let attempt = 0; attempt < 2; attempt++) {
+    // client rate budget: over-budget requests wait in line, they are never dropped
+    if (source) await takeSlot(source, deps.now ?? Date.now, sleep);
     const controller = new AbortController();
     const timer = setTimeout(
       () => controller.abort(),
@@ -406,13 +444,41 @@ export async function fetchJson(
   return { kind: "http", status: 0 };
 }
 
-type Probe = { answered: number; failed: number; typeErrors: number };
+type Probe = {
+  answered: number;
+  failed: number;
+  typeErrors: number;
+  /** HTTP 200 but the expected fields were missing (kept apart from not_found). */
+  schema: number;
+};
 
-function note(probe: Probe, outcome: FetchOutcome) {
-  // 429/5xx/network = "service unavailable"; any other response = it answered.
+const nowOf = (deps: LookupDeps) => (deps.now ?? Date.now)();
+
+function note(
+  probe: Probe,
+  outcome: FetchOutcome,
+  deps?: LookupDeps,
+  source?: string,
+) {
+  let code: HealthCode | undefined;
+  if (outcome.kind === "http") {
+    code =
+      outcome.status === 429
+        ? "http429"
+        : outcome.status >= 500 || outcome.status === 0
+          ? "http5xx"
+          : "http4xx";
+  } else if (outcome.kind === "network") code = "network";
+  if (deps && source && code)
+    recordHealth(deps.storage, source, code, nowOf(deps));
+  // 429/5xx/network = "service unavailable"; 401/403 = we are being refused; else it answered.
   if (
     outcome.kind === "ok" ||
-    (outcome.kind === "http" && outcome.status !== 429 && outcome.status < 500)
+    (outcome.kind === "http" &&
+      outcome.status !== 429 &&
+      outcome.status !== 401 &&
+      outcome.status !== 403 &&
+      outcome.status < 500)
   )
     probe.answered++;
   else {
@@ -420,6 +486,34 @@ function note(probe: Probe, outcome: FetchOutcome) {
     if (outcome.kind === "network" && outcome.error instanceof TypeError)
       probe.typeErrors++;
   }
+}
+
+/** Parsed-body verdict for an HTTP 200: ok / notfound / schema (own failure class). */
+function noteParsed(
+  probe: Probe,
+  deps: LookupDeps,
+  source: string,
+  code: "ok" | "notfound" | "schema",
+) {
+  if (code === "schema") {
+    probe.schema++;
+    probe.answered--; // a 200 with a broken shape is not a real answer
+  }
+  recordHealth(deps.storage, source, code, nowOf(deps));
+}
+
+/** Discogs: `results` array; when non-empty, some of the first 5 has title + genre|style arrays. */
+export function discogsShapeOk(json: any): boolean {
+  if (!Array.isArray(json?.results)) return false;
+  if (!json.results.length) return true;
+  return json.results
+    .slice(0, 5)
+    .some(
+      (r: any) =>
+        r &&
+        typeof r.title === "string" &&
+        (Array.isArray(r.genre) || Array.isArray(r.style)),
+    );
 }
 
 async function lookupDiscogs(
@@ -443,11 +537,19 @@ async function lookupDiscogs(
   ].filter(Boolean);
 
   for (const url of urls) {
-    const outcome = await fetchJson(url, deps, {
-      "User-Agent": DISCOGS_USER_AGENT,
-    });
-    note(probe, outcome);
+    if (!sourceAllowed(deps.storage, "Discogs", nowOf(deps))) break;
+    const outcome = await fetchJson(
+      url,
+      deps,
+      { "User-Agent": DISCOGS_USER_AGENT },
+      "Discogs",
+    );
+    note(probe, outcome, deps, "Discogs");
     if (outcome.kind !== "ok") continue;
+    if (!discogsShapeOk(outcome.json)) {
+      noteParsed(probe, deps, "Discogs", "schema");
+      continue;
+    }
     const results: any[] = Array.isArray(outcome.json?.results)
       ? outcome.json.results
       : [];
@@ -460,7 +562,10 @@ async function lookupDiscogs(
         })
       : [];
     const pool = relevant.length ? relevant : results;
-    if (!pool.length) continue;
+    if (!pool.length) {
+      noteParsed(probe, deps, "Discogs", "notfound");
+      continue;
+    }
 
     const genreCounts = new Map<string, number>();
     const styleCounts = new Map<string, number>();
@@ -474,6 +579,7 @@ async function lookupDiscogs(
     const labels = [...ranked.entries()]
       .sort((x, y) => y[1] - x[1])
       .map(([name]) => name);
+    noteParsed(probe, deps, "Discogs", labels.length ? "ok" : "notfound");
     if (labels.length) {
       // Unrelated fallback pool (nothing matched the artist) is shown but not trusted/cached.
       return {
@@ -486,6 +592,98 @@ async function lookupDiscogs(
   return;
 }
 
+async function lookupMusicBrainz(
+  track: TrackQuery,
+  deps: LookupDeps,
+  probe: Probe,
+): Promise<GenreResult | undefined> {
+  if (!track.title || !track.artist) return;
+  if (!sourceAllowed(deps.storage, "MusicBrainz", nowOf(deps))) return;
+  const headers = { "User-Agent": MB_USER_AGENT };
+  const search = await fetchJson(
+    mbSearchUrl(track.title, track.artist),
+    deps,
+    headers,
+    "MusicBrainz",
+  );
+  note(probe, search, deps, "MusicBrainz");
+  if (search.kind !== "ok") return;
+  const recs = parseMbSearch(search.json);
+  if (!recs) {
+    noteParsed(probe, deps, "MusicBrainz", "schema");
+    return;
+  }
+  const qTitle = normalizeTitle(track.title);
+  const qArtist = normalizeText(track.artist);
+  const matching = recs.filter((r) => {
+    if (r.score < 90) return false;
+    if (isDerivativeName(r.title, track.title)) return false;
+    if (wordSimilarity(qTitle, normalizeTitle(r.title)) < TITLE_MIN_SIMILARITY)
+      return false;
+    const artists = normalizeText(r.artists.join(" "));
+    if (!(tokenSubset(qArtist, artists) || artists.includes(qArtist)))
+      return false;
+    if (
+      track.durationMs > 0 &&
+      r.length &&
+      Math.abs(track.durationMs - r.length) > 10000
+    )
+      return false;
+    return true;
+  });
+  if (!matching.length) {
+    noteParsed(probe, deps, "MusicBrainz", "notfound");
+    return;
+  }
+  // album-title matches first, then Official before the rest
+  const qAlbum = normalizeText(track.album);
+  const ranked = matching
+    .flatMap((r) => r.releases)
+    .map((rel) => ({
+      id: rel.id,
+      rank:
+        (qAlbum && normalizeText(rel.title ?? "") === qAlbum ? 0 : 2) +
+        (rel.status === "Official" ? 0 : 1),
+    }))
+    .sort((x, y) => x.rank - y.rank);
+  const releases = [...new Set(ranked.map((x) => x.id))];
+  let sawGenres = false;
+  for (const id of releases.slice(0, MB_MAX_RELEASE_LOOKUPS)) {
+    const lk = await fetchJson(mbReleaseUrl(id), deps, headers, "MusicBrainz");
+    note(probe, lk, deps, "MusicBrainz");
+    if (lk.kind !== "ok") continue;
+    const genres = parseMbGenres(lk.json);
+    if (!genres) {
+      noteParsed(probe, deps, "MusicBrainz", "schema");
+      continue;
+    }
+    sawGenres = true;
+    if (genres.length) {
+      noteParsed(probe, deps, "MusicBrainz", "ok");
+      const knownLength =
+        track.durationMs > 0 && matching.some((m) => m.length);
+      const albumHit =
+        Boolean(track.album) &&
+        wordSimilarity(
+          normalizeText(track.album),
+          normalizeText(String(lk.json?.title ?? "")),
+        ) >= 0.94;
+      return {
+        genres,
+        source: "MusicBrainz",
+        confidence: albumHit ? 1 : knownLength ? 0.95 : 0.9,
+      };
+    }
+  }
+  noteParsed(
+    probe,
+    deps,
+    "MusicBrainz",
+    sawGenres || !releases.length ? "notfound" : "schema",
+  );
+  return;
+}
+
 async function lookupApple(
   track: TrackQuery,
   deps: LookupDeps,
@@ -494,15 +692,31 @@ async function lookupApple(
   if (!track.title || !track.artist) return;
   const term = encodeURIComponent(`${track.title} ${track.artist}`);
   let results: AppleItem[] = [];
+  let appleShapeBad = false;
   for (const country of ["us", "tr"]) {
+    if (!sourceAllowed(deps.storage, "Apple Music", nowOf(deps))) break;
     const outcome = await fetchJson(
       `https://itunes.apple.com/search?term=${term}&entity=song&limit=25&country=${country}`,
       deps,
     );
-    note(probe, outcome);
-    if (outcome.kind === "ok" && Array.isArray(outcome.json?.results))
-      results = results.concat(outcome.json.results);
+    note(probe, outcome, deps, "Apple Music");
+    if (outcome.kind !== "ok") continue;
+    const arr = outcome.json?.results;
+    if (
+      !Array.isArray(arr) ||
+      (arr.length > 0 &&
+        !arr
+          .slice(0, 5)
+          .some((r: any) => typeof r?.primaryGenreName === "string"))
+    ) {
+      appleShapeBad = true;
+      noteParsed(probe, deps, "Apple Music", "schema");
+      continue;
+    }
+    noteParsed(probe, deps, "Apple Music", arr.length ? "ok" : "notfound");
+    results = results.concat(arr);
   }
+  void appleShapeBad;
 
   const qAlbum = normalizeText(track.album);
   const candidates = results
@@ -801,6 +1015,7 @@ const netFailures = new Map<string, { count: number; until: number }>();
 export function resetLookupState() {
   inflight.clear();
   netFailures.clear();
+  resetBudgets();
 }
 
 export function ageLabel(ageMs: number): string {
@@ -812,14 +1027,19 @@ async function network(
   track: TrackQuery,
   deps: LookupDeps,
 ): Promise<NetResult> {
-  const probe: Probe = { answered: 0, failed: 0, typeErrors: 0 };
+  const probe: Probe = { answered: 0, failed: 0, typeErrors: 0, schema: 0 };
   let result = await lookupDiscogs(track, deps, probe);
+  if (!result) result = await lookupMusicBrainz(track, deps, probe);
   if (!result) result = await lookupApple(track, deps, probe);
   if (result) return { kind: "found", result };
-  if (probe.failed > 0)
+  // schema errors are their own class: never written to the negative cache
+  if (probe.failed > 0 || probe.schema > 0)
     return {
       kind: "error",
-      network: probe.answered === 0 && probe.typeErrors === probe.failed,
+      network:
+        probe.schema === 0 &&
+        probe.answered === 0 &&
+        probe.typeErrors === probe.failed,
     };
   return { kind: "not_found", clean: true };
 }
@@ -1027,3 +1247,80 @@ export async function lookupGenres(
   }
   return settle(await flight);
 }
+
+/** Fixed canary queries (no user data). */
+export const CANARY_DISCOGS_URL =
+  "https://api.discogs.com/database/search?artist=Radiohead&release_title=OK%20Computer&type=release&per_page=5";
+/** Pablo Honey (Official release); stable MBID. */
+export const CANARY_MB_URL = mbReleaseUrl(
+  "287dca89-2bf4-42c2-ba32-b6eddceb835f",
+);
+
+/**
+ * Daily self-test: 1 Discogs + 1 MusicBrainz request, verifies field shape,
+ * writes the result to wtg:health:v1. Returns null when not due.
+ */
+export async function runCanary(
+  deps: LookupDeps,
+): Promise<{ Discogs: HealthCode; MusicBrainz: HealthCode } | null> {
+  const t = nowOf(deps);
+  if (!canaryDue(deps.storage, t)) return null;
+  markCanary(deps.storage, t);
+  const out = {} as { Discogs: HealthCode; MusicBrainz: HealthCode };
+  const probe: Probe = { answered: 0, failed: 0, typeErrors: 0, schema: 0 };
+  const run = async (
+    source: "Discogs" | "MusicBrainz",
+    url: string,
+    headers: Record<string, string>,
+    shapeOk: (json: any) => boolean,
+  ) => {
+    if (!sourceAllowed(deps.storage, source, nowOf(deps))) {
+      out[source] = "network";
+      return;
+    }
+    const o = await fetchJson(url, deps, headers, source);
+    note(probe, o, deps, source);
+    if (o.kind === "ok") {
+      const ok = shapeOk(o.json);
+      recordHealth(deps.storage, source, ok ? "ok" : "schema", nowOf(deps));
+      out[source] = ok ? "ok" : "schema";
+    } else
+      out[source] =
+        o.kind === "network"
+          ? "network"
+          : o.status === 429
+            ? "http429"
+            : o.status >= 500 || o.status === 0
+              ? "http5xx"
+              : "http4xx";
+  };
+  await run(
+    "Discogs",
+    CANARY_DISCOGS_URL,
+    { "User-Agent": DISCOGS_USER_AGENT },
+    (j) =>
+      discogsShapeOk(j) && Array.isArray(j.results) && j.results.length > 0,
+  );
+  await run(
+    "MusicBrainz",
+    CANARY_MB_URL,
+    { "User-Agent": MB_USER_AGENT },
+    (j) => Array.isArray(j?.genres),
+  );
+  return out;
+}
+
+export { reserveSlot, BUDGETS } from "./sources/budget";
+export {
+  recordHealth,
+  sourceAllowed,
+  sourceStatus,
+  getBreaker,
+  evaluate as evaluateHealth,
+  HEALTH_KEY,
+} from "./sources/health";
+export {
+  parseMbSearch,
+  parseMbGenres,
+  MB_USER_AGENT,
+} from "./sources/musicbrainz";

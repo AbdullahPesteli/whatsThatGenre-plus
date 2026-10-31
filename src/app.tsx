@@ -7,6 +7,8 @@ import {
   flushCacheIndex,
   debounce,
   lookupGenres,
+  runCanary,
+  sourceBadge,
   replaceAll,
   waitForElement,
   type GenreResult,
@@ -129,6 +131,11 @@ async function injectGenres(genreContainer: HTMLDivElement) {
   genreContainer.className = "main-trackInfo-genres";
   genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
   await mountGenreContainer(genreContainer);
+  // daily self-test (max 1/day, 2 fixed requests, no user data)
+  void runCanary({
+    fetch: (url, init) => fetch(url, init),
+    storage: safeStorage(),
+  }).catch(() => undefined);
 
   const run = async (force = false) => {
     const outcome = await lookupGenres(
@@ -159,6 +166,7 @@ async function showOutcome(
       genreContainer,
       outcome.result.genres,
       outcome.result.source,
+      outcome.result.confidence,
     );
     if (outcome.label) {
       const note = document.createElement("span");
@@ -376,12 +384,13 @@ async function renderGenres(
   genreContainer: HTMLDivElement,
   genres: string[],
   source: GenreResult["source"],
+  confidence = 1,
 ) {
   genreContainer.className = "main-trackInfo-genres";
   genreContainer.innerHTML = "";
 
-  const tooltip =
-    source === "Discogs" ? "Source: Discogs" : "Source: Apple Music";
+  const sb = sourceBadge({ source, confidence });
+  const tooltip = sb.title;
   for (const genre of genres) {
     const genreTag = document.createElement("a");
     genreTag.className =
@@ -395,11 +404,8 @@ async function renderGenres(
 
   const badge = document.createElement("span");
   badge.className = "genre-source-badge";
-  badge.textContent = source === "Discogs" ? "DISCOGS" : "TRACK";
-  badge.title =
-    source === "Discogs"
-      ? "Source: Discogs (genre + style)"
-      : "Not found on Discogs; matched on Apple Music";
+  badge.textContent = sb.text.toUpperCase();
+  badge.title = sb.title;
   genreContainer.appendChild(badge);
 
   await mountGenreContainer(genreContainer);
