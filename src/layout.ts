@@ -119,7 +119,8 @@ export function placeRowGeo(i: GeoInput): GeoPlacement {
     vBar && h && i.bar ? i.bar.top - ROW_GAP : Number.POSITIVE_INFINITY,
     clip,
   );
-  const clamped = Math.min(top, limit - i.rowHeight);
+  // never lift the row above the host's own top edge (would cover the artist)
+  const clamped = Math.max(i.host.top, Math.min(top, limit - i.rowHeight));
   const still = clamped + i.rowHeight > limit + 0.5;
   return still
     ? { top: clamped, overlaps, hidden: true, action: "hidden" }
