@@ -263,6 +263,7 @@ type PanelKey =
   | "descRefresh"
   | "clearCache"
   | "descClear"
+  | "tipRightClick"
   | "confirm"
   | "source_discogs"
   | "source_musicbrainz"
@@ -273,6 +274,7 @@ const PANEL: Record<Lang, Record<PanelKey, string>> = {
   en: {
     title: "What's That Genre? Plus",
     version: "Version",
+    tipRightClick: "Right-click the genre row to open this panel any time.",
     secSource: "Where to look for the genre?",
     descSource:
       "The first place we ask; the others are used if it has no answer.",
@@ -298,6 +300,8 @@ const PANEL: Record<Lang, Record<PanelKey, string>> = {
   tr: {
     title: "What's That Genre? Plus",
     version: "Sürüm",
+    tipRightClick:
+      "Tür satırına sağ tıklayarak bu paneli her zaman açabilirsin.",
     secSource: "Türü nereden arasın?",
     descSource: "Önce burada aranır; cevap yoksa diğerlerine bakılır.",
     secLang: "Dil",

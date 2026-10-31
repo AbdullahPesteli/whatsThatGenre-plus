@@ -209,6 +209,14 @@ export function buildPanel(hooks: PanelHooks): unknown {
         { style: { opacity: 0.5, fontSize: 11, marginTop: 20 } },
         `${t("version")} ${PACKAGE_VERSION}`,
       ),
+      h(
+        "div",
+        {
+          "data-wtg-tip": "1",
+          style: { opacity: 0.45, fontSize: 11, marginTop: 6 },
+        },
+        t("tipRightClick"),
+      ),
     );
   };
   return h(Panel, null);
@@ -239,27 +247,65 @@ export function pickSettingsIcon(icons: any): string | undefined {
 }
 
 /** Registers the Topbar button (icon fallback chain, then Menu.Item); never throws. */
-export function registerSettingsButton(hooks: PanelHooks): boolean {
+/** Right-click / double-click on `el` opens the panel. Idempotent per element. */
+export function attachSettingsGestures(
+  el: HTMLElement | null | undefined,
+  hooks: PanelHooks,
+): boolean {
   try {
-    const sp = S();
-    const Btn = sp?.Topbar?.Button;
-    const icon0 = pickSettingsIcon(sp?.SVGIcons);
-    if (typeof Btn !== "function" || !icon0) {
-      if (typeof sp?.Menu?.Item === "function") {
-        new sp.Menu.Item(TOPBAR_TITLE, false, () => openPanel(hooks));
-        return true;
-      }
-      console.info("[WTG] settings button: no API");
-      return false;
-    }
-    const b = new Btn(TOPBAR_TITLE, icon0, () => openPanel(hooks));
-    try {
-      const el = b?.element as HTMLElement | undefined;
-      el?.setAttribute?.("title", TOPBAR_TITLE);
-      el?.setAttribute?.("aria-label", TOPBAR_TITLE);
-    } catch {}
+    if (!el || typeof el.addEventListener !== "function") return false;
+    if ((el as any).__wtgGestures) return true;
+    (el as any).__wtgGestures = true;
+    el.addEventListener("contextmenu", (e: Event) => {
+      e.preventDefault?.();
+      openPanel(hooks);
+    });
+    el.addEventListener("dblclick", (e: Event) => {
+      e.preventDefault?.();
+      openPanel(hooks);
+    });
     return true;
   } catch {
     return false;
   }
+}
+
+/** Menu.Item, ContextMenu.Item, Topbar button; each independent, none may throw. */
+export function registerSettingsButton(hooks: PanelHooks): boolean {
+  const sp = S();
+  const open = () => openPanel(hooks);
+  let ok = false;
+  try {
+    if (typeof sp?.Menu?.Item === "function") {
+      new sp.Menu.Item(TOPBAR_TITLE, false, open);
+      ok = true;
+    }
+  } catch {}
+  try {
+    if (typeof sp?.ContextMenu?.Item === "function") {
+      const ci = new sp.ContextMenu.Item(
+        TOPBAR_TITLE,
+        open,
+        () => true,
+        "settings",
+      );
+      ci?.register?.();
+      ok = true;
+    }
+  } catch {}
+  try {
+    const Btn = sp?.Topbar?.Button;
+    const icon0 = pickSettingsIcon(sp?.SVGIcons);
+    if (typeof Btn === "function" && icon0) {
+      const b = new Btn(TOPBAR_TITLE, icon0, open);
+      ok = true;
+      try {
+        const el = b?.element as HTMLElement | undefined;
+        el?.setAttribute?.("title", TOPBAR_TITLE);
+        el?.setAttribute?.("aria-label", TOPBAR_TITLE);
+      } catch {}
+    }
+  } catch {}
+  if (!ok) console.info("[WTG] settings button: no API");
+  return ok;
 }

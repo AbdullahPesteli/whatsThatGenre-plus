@@ -1,7 +1,10 @@
 import { findTrackInfoHost } from "./host";
 import { anchorTop, barWidthCeiling, placeRowGeo, rowWidth } from "./layout";
 import "./styles.scss";
-import { registerSettingsButton } from "./settings/panel";
+import {
+  attachSettingsGestures,
+  registerSettingsButton,
+} from "./settings/panel";
 import { currentLang, loadSettings, tr } from "./settings/store";
 import type { MusicalystData } from "./types/musicalyst";
 import {
@@ -60,12 +63,14 @@ export default async function main() {
   const genreContainer = document.createElement("div");
   genreContainer.className = "main-trackInfo-genres";
 
+  const panelHooks = {
+    storage: safeStorage,
+    refreshNow: () => forceRefreshHook?.(),
+    changed: () => void refresh(),
+  };
+  attachSettingsGestures(genreContainer, panelHooks);
   if (!settingsButtonRegistered)
-    settingsButtonRegistered = registerSettingsButton({
-      storage: safeStorage,
-      refreshNow: () => forceRefreshHook?.(),
-      changed: () => void refresh(),
-    });
+    settingsButtonRegistered = registerSettingsButton(panelHooks);
 
   const refresh = async () => {
     if (disposed) return;
