@@ -14,12 +14,32 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
+          # Keep in sync with .nvmrc (22) and package.json "engines.node": ">=22".
           node-version: 22
+          cache: npm
 
       - name: Install dependencies
-        # `npm ci` requires a committed package-lock.json, which this
-        # repository does not track.
-        run: npm install
+        run: npm ci
 
       - name: Typecheck
         run: npm run typecheck
+
+  dist-sync:
+    name: dist/ in sync with source
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build dist
+        run: npm run build-local
+
+      - name: Fail if committed dist/ is stale
+        run: git diff --exit-code -- dist/
