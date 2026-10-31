@@ -1,6 +1,15 @@
 import "./styles.scss";
 import type { MusicalystData } from "./types/musicalyst";
-import { camelize, debounce, replaceAll, waitForElement } from "./utils";
+import {
+	MSG_LOOKING,
+	MSG_NOT_FOUND,
+	camelize,
+	debounce,
+	lookupGenres,
+	replaceAll,
+	waitForElement,
+	type GenreResult,
+} from "./utils";
 
 // https://developer.spotify.com/documentation/web-api
 // https://github.com/DefinitelyTyped/DefinitelyTyped/blob/master/types/spotify-api/index.d.ts
@@ -8,25 +17,35 @@ import { camelize, debounce, replaceAll, waitForElement } from "./utils";
 let cachedGenres: string[] = [];
 let lastTrackKey = "";
 
-/** Width of the genre list, in px. The byline column itself is only ~172px wide. */
-const GENRE_CONTAINER_WIDTH = 340;
+/** Upper bound for the genre row, in px. The real width is measured from the host (see layoutGenreContainer). */
+const MAX_GENRE_WIDTH = 340;
+const MIN_GENRE_WIDTH = 120;
 
 let hasWarnedAboutMissingHost = false;
 
-type GenreResult = {
-	genres: string[];
-	source: "Discogs" | "Apple Music";
-};
+/** Tears down the previous main() so a second call never leaves duplicate listeners/timers. */
+let teardownPrevious: (() => void) | undefined;
+
+/** Inline `position` the host had before we forced it to "relative" (restored on cleanup). */
+let hostRestore: { host: HTMLElement; position: string } | undefined;
+let disposed = false;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 export default async function main() {
+	teardownPrevious?.();
+	teardownPrevious = undefined;
+	disposed = false;
+
 	while (!Spicetify?.Player || !Spicetify?.CosmosAsync || !Spicetify?.showNotification) {
 		await new Promise((resolve) => setTimeout(resolve, 100));
 	}
+	if (disposed) return;
 
 	const genreContainer = document.createElement("div");
 	genreContainer.className = "main-trackInfo-genres";
 
 	const refresh = async () => {
+		if (disposed) return;
 		try {
 			await injectGenres(genreContainer);
 		} catch (error) {
@@ -34,23 +53,42 @@ export default async function main() {
 		}
 	};
 
+	const onResize = debounce(() => {
+		if (!disposed && genreContainer.parentElement) layoutGenreContainer(genreContainer);
+	});
+
 	Spicetify.Player.addEventListener("songchange", refresh);
-	window.addEventListener(
-		"resize",
-		debounce(async () => {
-			if (genreContainer.parentElement) await mountGenreContainer(genreContainer);
-		})
-	);
+	window.addEventListener("resize", onResize);
 
 	// Spotify can restore a playing track without emitting songchange.
+	const restoreTimer = setTimeout(refresh, 1200);
+
+	teardownPrevious = () => {
+		disposed = true;
+		// Present at runtime (spicetify-cli Player) but missing from the bundled typings.
+		(Spicetify.Player as unknown as { removeEventListener(t: string, f: () => void): void }).removeEventListener("songchange", refresh);
+		window.removeEventListener("resize", onResize);
+		onResize.cancel();
+		clearTimeout(restoreTimer);
+		if (retryTimer) clearTimeout(retryTimer);
+		retryTimer = undefined;
+		genreContainer.remove();
+		if (hostRestore) {
+			hostRestore.host.style.position = hostRestore.position;
+			hostRestore = undefined;
+		}
+	};
+
 	await refresh();
-	setTimeout(refresh, 1200);
 }
 
 async function injectGenres(genreContainer: HTMLDivElement) {
+	if (retryTimer) clearTimeout(retryTimer);
+	retryTimer = undefined;
+
 	const data = Spicetify.Player.data;
 	if (!data?.item) {
-		setTimeout(() => injectGenres(genreContainer), 1000);
+		if (!disposed) retryTimer = setTimeout(() => injectGenres(genreContainer), 1000);
 		return;
 	}
 
@@ -67,220 +105,40 @@ async function injectGenres(genreContainer: HTMLDivElement) {
 	lastTrackKey = trackKey;
 
 	genreContainer.className = "main-trackInfo-genres";
-	genreContainer.innerHTML = '<span class="genre-loading">Genre aranıyor…</span>';
+	genreContainer.innerHTML = `<span class="genre-loading">${MSG_LOOKING}</span>`;
 	await mountGenreContainer(genreContainer);
 
-	const result = await resolveGenres({ artistId, title, artist, album, durationMs });
-	if (lastTrackKey !== trackKey) return;
+	const outcome = await lookupGenres(
+		{ artistId, title, artist, album, durationMs },
+		{ fetch: (url, init) => fetch(url, init), storage: safeStorage() }
+	);
+	if (disposed || lastTrackKey !== trackKey) return;
 
-	cachedGenres = result?.genres || [];
-	if (result && result.genres.length > 0) {
-		await renderGenres(genreContainer, result.genres, result.source);
+	if (outcome.status === "ok") {
+		cachedGenres = outcome.result.genres;
+		await renderGenres(genreContainer, outcome.result.genres, outcome.result.source);
 		return;
 	}
 
-	genreContainer.innerHTML = '<span class="genre-unavailable">Genre bulunamadı</span>';
-}
-
-async function resolveGenres(track: {
-	artistId: string;
-	title: string;
-	artist: string;
-	album: string;
-	durationMs: number;
-}): Promise<GenreResult | undefined> {
-	// Persistent per-track cache so we never re-hit the network for a song we
-	// already resolved (also keeps us well under Discogs' 25 req/min limit).
-	const cacheKey = `hermesGenre:${normalize(track.artist)}|${normalizeTitle(track.title)}`;
-	const cached = readCache(cacheKey);
-	if (cached) return cached;
-
-	// Spotify no longer exposes genres in the client API. Primary source is
-	// Discogs (rich genre[] + sub-style[]); fall back to Apple Music (coarse
-	// single genre) so the bar is never blank.
-	let result: GenreResult | undefined;
-	const discogs = await fetchDiscogsGenres(track);
-	if (discogs && discogs.length) {
-		result = { genres: discogs, source: "Discogs" };
+	cachedGenres = [];
+	if (outcome.status === "error") {
+		genreContainer.innerHTML = "";
+		const span = document.createElement("span");
+		span.className = "genre-error";
+		span.textContent = outcome.message;
+		genreContainer.appendChild(span);
 	} else {
-		const appleGenre = await fetchAppleGenre(track);
-		if (appleGenre) result = { genres: [appleGenre], source: "Apple Music" };
+		genreContainer.innerHTML = `<span class="genre-unavailable">${MSG_NOT_FOUND}</span>`;
 	}
-
-	if (result) writeCache(cacheKey, result);
-	return result;
+	layoutGenreContainer(genreContainer);
 }
 
-function readCache(key: string): GenreResult | undefined {
+function safeStorage() {
 	try {
-		const raw = localStorage.getItem(key);
-		if (!raw) return;
-		const parsed = JSON.parse(raw);
-		if (parsed && Array.isArray(parsed.genres) && parsed.genres.length) return parsed as GenreResult;
-	} catch {}
-	return;
-}
-
-function writeCache(key: string, value: GenreResult) {
-	try {
-		localStorage.setItem(key, JSON.stringify(value));
-	} catch {}
-}
-
-// Discogs public database search works from the browser with no token
-// (Access-Control-Allow-Origin: *). We aggregate genre[] + style[] across the
-// artist's matching releases and rank by frequency so the label reflects the
-// artist's actual catalogue, not one random compilation.
-async function fetchDiscogsGenres(track: {
-	title: string;
-	artist: string;
-	album: string;
-}): Promise<string[] | undefined> {
-	if (!track.artist) return;
-	const normArtist = normalize(track.artist);
-	const q = (params: string) => `https://api.discogs.com/database/search?${params}&type=release&per_page=25`;
-	const urls = [
-		track.album ? q(`artist=${encodeURIComponent(track.artist)}&release_title=${encodeURIComponent(track.album)}`) : "",
-		track.title ? q(`artist=${encodeURIComponent(track.artist)}&track=${encodeURIComponent(track.title)}`) : "",
-		q(`artist=${encodeURIComponent(track.artist)}`),
-	].filter(Boolean);
-
-	for (const url of urls) {
-		let results: any[] = [];
-		try {
-			const res = await fetch(url);
-			if (!res.ok) continue;
-			const payload = await res.json();
-			results = Array.isArray(payload?.results) ? payload.results : [];
-		} catch (error) {
-			console.warn("[HermesGenre] Discogs lookup failed", url, error);
-			continue;
-		}
-
-		// Only trust releases whose title contains our artist (search is fuzzy).
-		const relevant = results.filter((item: any) => {
-			const t = normalize(item.title || "");
-			return tokenSubset(normArtist, t) || t.includes(normArtist);
-		});
-		const pool = relevant.length ? relevant : results;
-		if (!pool.length) continue;
-
-		const genreCounts = new Map<string, number>();
-		const styleCounts = new Map<string, number>();
-		for (const item of pool) {
-			for (const g of item.genre || []) genreCounts.set(g, (genreCounts.get(g) || 0) + 1);
-			for (const st of item.style || []) styleCounts.set(st, (styleCounts.get(st) || 0) + 1);
-		}
-		// Prefer fine-grained styles (e.g. "Synth-pop", "Nu-Disco"); fall back to
-		// broad genres ("Electronic") when a release has no styles listed.
-		const ranked = (styleCounts.size ? styleCounts : genreCounts);
-		const labels = [...ranked.entries()].sort((a, b) => b[1] - a[1]).map(([name]) => name);
-		if (labels.length) return labels.slice(0, 5);
+		return window.localStorage;
+	} catch {
+		return undefined;
 	}
-	return;
-}
-
-async function fetchAppleGenre(track: {
-	title: string;
-	artist: string;
-	album: string;
-	durationMs: number;
-}): Promise<string | undefined> {
-	if (!track.title || !track.artist) return;
-	const query = encodeURIComponent(`${track.title} ${track.artist}`);
-	const urls = [
-		`https://itunes.apple.com/search?term=${query}&entity=song&limit=25&country=us`,
-		`https://itunes.apple.com/search?term=${query}&entity=song&limit=25&country=tr`,
-	];
-	let results: any[] = [];
-	for (const url of urls) {
-		try {
-			const response = await fetch(url);
-			if (!response.ok) continue;
-			const payload = await response.json();
-			results = results.concat(Array.isArray(payload?.results) ? payload.results : []);
-		} catch (error) {
-			console.warn("[HermesGenre] Apple Music lookup failed", url, error);
-		}
-	}
-	const normalizedTitle = normalizeTitle(track.title);
-	const normalizedArtist = normalize(track.artist);
-	const normalizedAlbum = normalize(track.album);
-
-	const candidates = results
-		.map((item: any) => {
-			const candTitle = normalizeTitle(item.trackName || "");
-			const candArtist = normalize(item.artistName || "");
-			const titleScore = similarity(normalizedTitle, candTitle);
-			const artistScore = similarity(normalizedArtist, candArtist);
-			// Spotify often lists only the lead artist ("Justice") while iTunes lists
-			// the full credit ("Justice & Tame Impala"). Accept when every Spotify
-			// artist token is present in the iTunes credit (subset match).
-			const artistSubset = tokenSubset(normalizedArtist, candArtist);
-			const albumScore = normalizedAlbum ? similarity(normalizedAlbum, normalize(item.collectionName || "")) : 0;
-			const durationDiff = track.durationMs && item.trackTimeMillis
-				? Math.abs(track.durationMs - Number(item.trackTimeMillis))
-				: Number.POSITIVE_INFINITY;
-			const durationScore = durationDiff <= 2500 ? 1 : durationDiff <= 7000 ? 0.5 : 0;
-			const artistOk = artistScore >= 0.9 || artistSubset;
-			// Strong identity: exact/near title + artist match + plausible duration.
-			const exactCore = titleScore >= 0.92 && artistOk && durationDiff <= 6000;
-			const artistCombined = Math.max(artistScore, artistSubset ? 0.9 : 0);
-			const score = titleScore * 0.46 + artistCombined * 0.36 + albumScore * 0.1 + durationScore * 0.08;
-			return { item, exactCore, score, durationDiff };
-		})
-		.filter(({ item, exactCore, score }: any) => item.primaryGenreName && exactCore && score >= 0.82)
-		.sort((a: any, b: any) => b.score - a.score || a.durationDiff - b.durationDiff);
-
-	if (!candidates.length) return;
-	const winner = candidates[0];
-	// If two equally plausible releases disagree on genre, prefer the current album;
-	// otherwise fail closed instead of attaching a random compilation genre.
-	const tied = candidates.filter((candidate: any) => Math.abs(winner.score - candidate.score) < 0.015);
-	const tiedGenres = new Set(tied.map((candidate: any) => normalize(candidate.item.primaryGenreName)));
-	if (tiedGenres.size > 1 && normalizedAlbum) {
-		const sameAlbum = tied.find((candidate: any) => similarity(normalizedAlbum, normalize(candidate.item.collectionName || "")) >= 0.94);
-		if (sameAlbum) return sameAlbum.item.primaryGenreName;
-	}
-	if (tiedGenres.size > 1) return;
-	return winner.item.primaryGenreName;
-}
-
-function normalizeTitle(value: string): string {
-	return normalize(value)
-		.replace(/\b(remaster(?:ed)?|radio edit|single version|album version|explicit|clean)\b/g, " ")
-		.replace(/\s+/g, " ")
-		.trim();
-}
-
-function normalize(value: string): string {
-	return value
-		.normalize("NFKD")
-		.replace(/[\u0300-\u036f]/g, "")
-		.toLowerCase()
-		.replace(/&/g, " and ")
-		.replace(/[^a-z0-9]+/g, " ")
-		.trim()
-		.replace(/\s+/g, " ");
-}
-
-function tokenSubset(a: string, b: string): boolean {
-	if (!a || !b) return false;
-	const bb = new Set(b.split(" ").filter(Boolean));
-	const aa = a.split(" ").filter(Boolean);
-	if (!aa.length) return false;
-	return aa.every((token) => bb.has(token));
-}
-
-function similarity(a: string, b: string): number {
-	if (!a || !b) return 0;
-	if (a === b) return 1;
-	if (a.includes(b) || b.includes(a)) return Math.min(a.length, b.length) / Math.max(a.length, b.length);
-	const aa = new Set(a.split(" "));
-	const bb = new Set(b.split(" "));
-	let intersection = 0;
-	for (const token of aa) if (bb.has(token)) intersection++;
-	return intersection / Math.max(aa.size, bb.size);
 }
 
 /**
@@ -294,8 +152,9 @@ function similarity(a: string, b: string): number {
 function findTrackInfoHost(): Element | null {
 	const scope =
 		document.querySelector('[data-testid="now-playing-widget"]') ??
-		document.querySelector('[data-testid="now-playing-bar"]') ??
-		document.body;
+		document.querySelector('[data-testid="now-playing-bar"]');
+	// Neither marker present: refuse to guess. Never fall back to document.body.
+	if (!scope) return null;
 
 	// Preferred: the container holding both the track and the artist links.
 	const trackLink = scope.querySelector<HTMLAnchorElement>('a[href*="/track/"]');
@@ -320,11 +179,11 @@ function findTrackInfoHost(): Element | null {
 /**
  * The byline column is a grid, so a child added to it would trigger implicit
  * placement into a new column and squeeze the title and artist to one character
- * each. Taking the element out of flow avoids that, and behaves identically
- * whether the host resolves to a grid, a flex row or a plain block.
+ * each. The row is therefore taken out of flow (absolute) and positioned from
+ * measurements, see layoutGenreContainer.
  */
 async function mountGenreContainer(genreContainer: HTMLDivElement) {
-	const host = await waitForElement(findTrackInfoHost, 5000);
+	const host = (await waitForElement(findTrackInfoHost, 5000)) as HTMLElement | null;
 	if (!host) {
 		if (!hasWarnedAboutMissingHost) {
 			hasWarnedAboutMissingHost = true;
@@ -332,29 +191,97 @@ async function mountGenreContainer(genreContainer: HTMLDivElement) {
 		}
 		return;
 	}
-	if (genreContainer.parentElement === host) return;
+	if (disposed) return;
 
-	if (getComputedStyle(host).position === "static") (host as HTMLElement).style.position = "relative";
-	genreContainer.style.position = "absolute";
-	genreContainer.style.left = "0";
-	genreContainer.style.top = "100%";
-	genreContainer.style.width = `${GENRE_CONTAINER_WIDTH}px`;
-	genreContainer.style.maxWidth = `${GENRE_CONTAINER_WIDTH}px`;
-	genreContainer.style.flex = "";
-	genreContainer.style.order = "";
-	genreContainer.style.margin = "0";
-	host.appendChild(genreContainer);
+	if (genreContainer.parentElement !== host) {
+		// Undo a previous host's forced positioning before moving on.
+		if (hostRestore && hostRestore.host !== host) {
+			hostRestore.host.style.position = hostRestore.position;
+			hostRestore = undefined;
+		}
+		if (getComputedStyle(host).position === "static") {
+			if (!hostRestore) hostRestore = { host, position: host.style.position };
+			host.style.position = "relative";
+		}
+		genreContainer.style.position = "absolute";
+		genreContainer.style.left = "0";
+		genreContainer.style.flex = "";
+		genreContainer.style.order = "";
+		genreContainer.style.margin = "0";
+		host.appendChild(genreContainer);
+	}
+	layoutGenreContainer(genreContainer);
+}
+
+/**
+ * Size and place the row from live measurements:
+ *  - width: the space between the host's left edge and the now-playing widget's
+ *    right edge, clamped to [MIN_GENRE_WIDTH, MAX_GENRE_WIDTH];
+ *  - top: directly under the host, but only if the row fits above the seek bar.
+ *    If it would overlap the progress bar (or be clipped by an overflow:hidden
+ *    ancestor) it is hidden and the genres go to the host's tooltip instead.
+ */
+function layoutGenreContainer(genreContainer: HTMLDivElement) {
+	const host = genreContainer.parentElement as HTMLElement | null;
+	if (!host) return;
+
+	const hostRect = host.getBoundingClientRect();
+	const widget = host.closest('[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]');
+	const limitRight = widget ? widget.getBoundingClientRect().right : hostRect.right;
+	const available = Math.floor(Math.max(hostRect.width, limitRight - hostRect.left));
+	const width = Math.min(MAX_GENRE_WIDTH, Math.max(MIN_GENRE_WIDTH, available));
+	genreContainer.style.width = `${width}px`;
+	genreContainer.style.maxWidth = `${width}px`;
+	genreContainer.style.top = `${host.offsetHeight}px`;
+	genreContainer.style.visibility = "";
+
+	const rowHeight = genreContainer.offsetHeight;
+	const rowTop = hostRect.bottom;
+	const bar = document.querySelector('[data-testid="playback-progressbar"]');
+	const barTop = bar ? bar.getBoundingClientRect().top : Number.POSITIVE_INFINITY;
+	let clipped = false;
+	for (let el = host.parentElement; el && el !== document.body; el = el.parentElement) {
+		if (getComputedStyle(el).overflow !== "visible") {
+			clipped = rowTop + rowHeight > el.getBoundingClientRect().bottom + 0.5;
+			break;
+		}
+	}
+	const overlapsBar = rowTop + rowHeight > barTop + 0.5;
+	if (overlapsBar || clipped) {
+		genreContainer.style.visibility = "hidden";
+		host.title = genreContainer.textContent || "";
+	} else if (host.title && host.title === (genreContainer.textContent || "")) {
+		host.removeAttribute("title");
+	}
+	updateOverflow(genreContainer);
+}
+
+/** Marquee: clientWidth is the measured visible width (set above), so scrollWidth-clientWidth is the real overflow. */
+function updateOverflow(genreContainer: HTMLDivElement) {
+	try {
+		const overflowPx = genreContainer.scrollWidth - genreContainer.clientWidth;
+		const overflow = overflowPx > 2;
+		genreContainer.classList.toggle("genres-overflow", overflow);
+		if (overflow) {
+			genreContainer.style.setProperty("--genres-scroll", `${overflowPx + 12}px`);
+			genreContainer.title = genreContainer.textContent || "";
+		} else {
+			genreContainer.style.removeProperty("--genres-scroll");
+		}
+	} catch (error) {
+		console.warn("[HermesGenre] overflow check failed", error);
+	}
 }
 
 async function renderGenres(
 	genreContainer: HTMLDivElement,
 	genres: string[],
-	source: "Discogs" | "Apple Music"
+	source: GenreResult["source"]
 ) {
 	genreContainer.className = "main-trackInfo-genres";
 	genreContainer.innerHTML = "";
 
-	const tooltip = source === "Discogs" ? "Kaynak: Discogs (genre + style)" : "Parça eşleşmesi: Apple Music";
+	const tooltip = source === "Discogs" ? "Source: Discogs" : "Source: Apple Music";
 	for (const genre of genres) {
 		const genreTag = document.createElement("a");
 		genreTag.className = "TextElement-marginal-textSubdued-text encore-text-marginal genre-tag";
@@ -369,28 +296,13 @@ async function renderGenres(
 	badge.className = "genre-source-badge";
 	badge.textContent = source === "Discogs" ? "DISCOGS" : "TRACK";
 	badge.title = source === "Discogs"
-		? "Türler Discogs kataloğundan (genre + alt-stiller)"
-		: "Discogs'ta bulunamadı; parça Apple Music ile eşleştirildi";
+		? "Source: Discogs (genre + style)"
+		: "Not found on Discogs; matched on Apple Music";
 	genreContainer.appendChild(badge);
 
 	await mountGenreContainer(genreContainer);
-
-	// If the tags are wider than the now-playing bar, mark it so CSS can
-	// auto-scroll on hover instead of letting Spotify wrap/clip mid-word.
 	requestAnimationFrame(() => {
-		try {
-			const overflowPx = genreContainer.scrollWidth - genreContainer.clientWidth;
-			const overflow = overflowPx > 2;
-			genreContainer.classList.toggle("genres-overflow", overflow);
-			if (overflow) {
-				genreContainer.style.setProperty("--genres-scroll", `${overflowPx + 12}px`);
-				genreContainer.title = genreContainer.textContent || "";
-			} else {
-				genreContainer.style.removeProperty("--genres-scroll");
-			}
-		} catch (error) {
-			console.warn("[HermesGenre] overflow check failed", error);
-		}
+		if (!disposed) layoutGenreContainer(genreContainer);
 	});
 }
 
@@ -504,7 +416,7 @@ async function createPlaylist(playlist: SpotifyApi.PlaylistObjectFull): Promise<
 			<div class="playlist-description">
 				<h1 class="playlist-title">${playlist.name}</h1>
 				<p class="playlist-stats">
-					${playlist.owner.display_name} • ${playlist.followers.total} likes • ${playlist.items?.total || 0} songs
+					${playlist.owner.display_name} • ${playlist.followers.total} likes • ${playlist.tracks?.total || 0} songs
 				</p>
 			</div>
 		</a>
