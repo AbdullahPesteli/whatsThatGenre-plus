@@ -1,5 +1,11 @@
 import { findTrackInfoHost } from "./host";
-import { anchorTop, barWidthCeiling, placeRowGeo, rowWidth } from "./layout";
+import {
+  anchorTop,
+  barWidthCeiling,
+  placeRowGeo,
+  rowWidth,
+  type Box,
+} from "./layout";
 import "./styles.scss";
 import {
   attachSettingsGestures,
@@ -104,6 +110,7 @@ export default async function main() {
     ).removeEventListener("songchange", refresh);
     window.removeEventListener("resize", onResize);
     onResize.cancel();
+    disposeGenreLayoutWatch();
     clearTimeout(restoreTimer);
     window.removeEventListener("online", refresh);
     flushCacheIndex(safeStorage());
@@ -289,32 +296,159 @@ async function mountGenreContainer(genreContainer: HTMLDivElement) {
   layoutGenreContainer(genreContainer);
 }
 
+/** Gap kept between the cover's right edge and the row's left start, px. */
+const COVER_GAP = 8;
+
+/** Content boundary the row anchors to, in viewport coordinates. */
+interface ContentAnchor {
+  /** Vertical gap under `.bottom`; lift floor at `.top`. `.left` is the row's left start. */
+  box: Box;
+  /** Elements whose resize must re-trigger the layout (host + byline). */
+  watch: Element[];
+}
+
+/**
+ * The row must not collide with the cover or the full title+artist byline:
+ *  - host contains title+artist and is not widget/bar-wide (legacy trackInfo,
+ *    byline wrapper) -> the host box itself is the boundary (unchanged legacy
+ *    placement);
+ *  - host is as wide as the widget/bar scope (cover included) -> the real
+ *    track/byline rect is the boundary, and when the cover rect is included
+ *    the row's left start never stays left of cover.right + COVER_GAP.
+ */
+function resolveContentAnchor(host: HTMLElement): ContentAnchor {
+  const scope =
+    host.closest<HTMLElement>(
+      '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
+    ) ?? host;
+  const pick = (sel: string): HTMLElement | null => {
+    const local = host.matches(sel)
+      ? host
+      : host.querySelector<HTMLElement>(sel);
+    if (local) return local;
+    return scope === host ? null : scope.querySelector<HTMLElement>(sel);
+  };
+  const title = pick('a[href*="/track/"]');
+  const artist = pick('a[href*="/artist/"]');
+  const cover = pick('[data-testid^="CoverSlot"]');
+
+  const hostRect = host.getBoundingClientRect();
+  const wide =
+    scope === host || hostRect.width >= scope.getBoundingClientRect().width - 1;
+  const bylineInHost =
+    !!title && !!artist && host.contains(title) && host.contains(artist);
+
+  let box: Box;
+  const watch: Element[] = [host];
+  if (bylineInHost && !wide) {
+    box = hostRect;
+  } else if (title || artist) {
+    for (const el of [title, artist]) if (el) watch.push(el);
+    const parent = title && artist ? title.parentElement : null;
+    if (parent && parent !== host && artist && parent.contains(artist)) {
+      box = parent.getBoundingClientRect();
+      watch.push(parent);
+    } else {
+      const rects = [title, artist]
+        .filter((el): el is HTMLElement => !!el)
+        .map((el) => el.getBoundingClientRect());
+      box = {
+        left: Math.min(...rects.map((r) => r.left)),
+        right: Math.max(...rects.map((r) => r.right)),
+        top: Math.min(...rects.map((r) => r.top)),
+        bottom: Math.max(...rects.map((r) => r.bottom)),
+      };
+    }
+  } else {
+    box = hostRect;
+  }
+
+  if (cover && host.contains(cover)) {
+    // Cover rect included in the host: keep the row's left start clear of it.
+    box = {
+      ...box,
+      left: Math.max(box.left, cover.getBoundingClientRect().right + COVER_GAP),
+    };
+  }
+  return { box, watch };
+}
+
+/** Debounced relayout watcher for byline re-flows without a window.resize. */
+interface AnchorWatch {
+  observer: ResizeObserver;
+  relayout: { (): void; cancel(): void };
+  targets: Set<Element>;
+  dead: boolean;
+}
+let anchorWatch: AnchorWatch | undefined;
+
+function watchAnchor(genreContainer: HTMLDivElement, els: Element[]): void {
+  if (typeof ResizeObserver === "undefined") return;
+  if (!anchorWatch) {
+    const watch: AnchorWatch = {
+      observer: undefined as unknown as ResizeObserver,
+      relayout: debounce(() => {
+        if (!disposed && genreContainer.parentElement)
+          layoutGenreContainer(genreContainer);
+      }),
+      targets: new Set<Element>(),
+      dead: false,
+    };
+    watch.observer = new ResizeObserver(() => {
+      // The row itself is never observed, so this cannot feed back into it.
+      if (!watch.dead) watch.relayout();
+    });
+    anchorWatch = watch;
+  }
+  const watch = anchorWatch;
+  for (const el of els) {
+    if (el && !watch.targets.has(el)) {
+      watch.targets.add(el);
+      watch.observer.observe(el);
+    }
+  }
+}
+
+/** Tears down the reflow watcher (disconnect + pending debounce cancel). */
+function disposeGenreLayoutWatch(): void {
+  const watch = anchorWatch;
+  anchorWatch = undefined;
+  if (!watch) return;
+  watch.dead = true;
+  watch.observer.disconnect();
+  watch.relayout.cancel();
+}
+
 /**
  * Size and place the row from live measurements:
- *  - width: the space between the host's left edge and the now-playing widget's
- *    right edge, clamped to [MIN_GENRE_WIDTH, MAX_GENRE_WIDTH];
- *  - top: directly under the host, but only if the row fits above the seek bar.
- *    If it would overlap the progress bar (or be clipped by an overflow:hidden
- *    ancestor) it is hidden and the genres go to the host's tooltip instead.
+ *  - width: the space between the row's left start (content boundary, clear of
+ *    the cover) and the now-playing widget's right edge, clamped to
+ *    [MIN_GENRE_WIDTH, MAX_GENRE_WIDTH];
+ *  - top: directly under the content boundary (host bottom, or the byline's
+ *    real rect for a widget/bar-wide host), but only if the row fits above the
+ *    seek bar. If it would overlap the progress bar (or be clipped by an
+ *    overflow:hidden ancestor) it is hidden and the genres go to the host's
+ *    tooltip instead.
  */
 function layoutGenreContainer(genreContainer: HTMLDivElement) {
   const host = genreContainer.parentElement as HTMLElement | null;
   if (!host) return;
 
-  const hostRect = host.getBoundingClientRect();
+  const { box, watch } = resolveContentAnchor(host);
+  // Re-measure on byline/host reflow (title/artist re-wrap) without a
+  // window.resize; the watcher dedupes targets and never observes the row.
+  watchAnchor(genreContainer, watch);
   const widget = host.closest(
     '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
   );
-  const limitRight = widget
-    ? widget.getBoundingClientRect().right
-    : hostRect.right;
+  const limitRight = widget ? widget.getBoundingClientRect().right : box.right;
   const barEl = document.querySelector('[data-testid="playback-progressbar"]');
   const barRect = barEl ? barEl.getBoundingClientRect() : null;
-  const ceiling = barWidthCeiling(hostRect, barRect);
+  const ceiling = barWidthCeiling(box, barRect);
   const available = Math.floor(
     ceiling !== null
       ? ceiling
-      : Math.max(hostRect.width, limitRight - hostRect.left),
+      : Math.max(box.right - box.left, limitRight - box.left),
   );
   const badgeEl = genreContainer.querySelector(
     ".genre-source-badge",
@@ -334,7 +468,8 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     (genreContainer.offsetParent as HTMLElement | null) || host;
   const parentRect = anchorParent.getBoundingClientRect();
   const parentTop = parentRect.top + (anchorParent.clientTop || 0);
-  const defaultTop = anchorTop(hostRect, parentTop);
+  const parentLeft = parentRect.left + (anchorParent.clientLeft || 0);
+  const defaultTop = anchorTop(box, parentTop);
   genreContainer.style.top = `${defaultTop}px`;
 
   const rowHeight = genreContainer.offsetHeight;
@@ -350,13 +485,23 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
       break;
     }
   }
+  // placeRowGeo anchors below `bottom`, lifts no higher than `top`, and runs
+  // the progress-bar x-test against the box given here: hand it the row's REAL
+  // x-range so a full-width host never fakes a bar collision.
+  const rowBox: Box = {
+    top: box.top,
+    bottom: box.bottom,
+    left: box.left,
+    right: box.left + width,
+  };
   const geo = placeRowGeo({
-    host: hostRect,
+    host: rowBox,
     bar: barRect,
     rowHeight,
     clipBottom,
   });
   const placed = {
+    left: box.left - parentLeft,
     top: geo.top - parentTop,
     hidden: geo.hidden,
     action: geo.action,
@@ -364,11 +509,13 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
   };
   console.info("[WTG] layout", {
     height: rowHeight,
+    left: placed.left,
     top: placed.top,
     barTop,
     overlaps: placed.overlaps,
     action: placed.action,
   });
+  genreContainer.style.left = `${placed.left}px`;
   genreContainer.style.top = `${placed.top}px`;
   if (placed.hidden) {
     // LAST RESORT: row cannot fit even after shifting up; fall back to tooltip.
