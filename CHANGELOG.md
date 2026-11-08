@@ -5,6 +5,17 @@ All notable changes to **What's That Genre? Plus** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-11-08
+
+### Fixed
+
+- Fix genre placement near cover/title/artist when Spotify rearranges player; recompute after internal size changes.
+- Includes non-link artist bylines in the layout boundary and resize observation.
+
+### Validation scope
+
+- Isolated Chromium LAB coverage only; native Spotify 1.3.6 / Spicetify exact-environment E2E was not run. No claim of compatibility with every Spotify version.
+
 ## [2.3.0] - 2026-10-31
 
 ### Added
