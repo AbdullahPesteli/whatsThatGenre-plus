@@ -41,24 +41,37 @@ function resolveInScope(scope: Element): Element {
     'a[href*="/artist/"]',
   );
   if (trackLink && artistLink) {
-    let node: Element = trackLink;
-    while (
-      node.parentElement &&
-      node.parentElement !== scope &&
-      !node.parentElement.contains(artistLink)
+    // The host must cover BOTH the track title and the artist. Return the
+    // lowest common ancestor of the two links (their shared byline wrapper);
+    // when the links are flat siblings that ancestor is the scope itself.
+    for (
+      let outer: Element | null = trackLink;
+      outer && outer !== scope;
+      outer = outer.parentElement
     ) {
-      node = node.parentElement;
+      for (
+        let inner: Element | null = artistLink;
+        inner && inner !== scope;
+        inner = inner.parentElement
+      ) {
+        if (outer === inner) return outer;
+      }
     }
-    return node.parentElement && node.parentElement !== scope
-      ? node.parentElement
-      : node;
+    return scope;
   }
+  // No track/artist link pair: the host must hold the whole byline (title and
+  // artist text). A single text line keeps the previous first-text-child
+  // contract; flat sibling lines (title + artist) only ever share the scope.
+  let line: Element | null = null;
   for (const child of Array.from(scope.children)) {
     if ((child.getAttribute("data-testid") ?? "").startsWith("CoverSlot"))
       continue;
-    if ((child.textContent ?? "").trim()) return child;
+    if ((child.textContent ?? "").trim()) {
+      if (line) return scope;
+      line = child;
+    }
   }
-  return scope;
+  return line ?? scope;
 }
 
 export function findTrackInfoHost(
