@@ -329,8 +329,53 @@ function resolveContentAnchor(host: HTMLElement): ContentAnchor {
     return scope === host ? null : scope.querySelector<HTMLElement>(sel);
   };
   const title = pick('a[href*="/track/"]');
-  const artist = pick('a[href*="/artist/"]');
+  let artist = pick('a[href*="/artist/"]');
   const cover = pick('[data-testid^="CoverSlot"]');
+  if (!artist && title) {
+    // A non-link byline can be a sibling of the title or of its wrapper.
+    // Only accept a unique text leaf below the title in that content branch;
+    // controls elsewhere in the widget and our own row are not boundaries.
+    const titleBox = title.getBoundingClientRect();
+    for (let branch: Element = title; branch.parentElement;) {
+      const parent = branch.parentElement;
+      const candidates: HTMLElement[] = [];
+      for (const sibling of Array.from(parent.children)) {
+        if (
+          sibling === branch ||
+          (cover && sibling.contains(cover)) ||
+          sibling.closest(".main-trackInfo-genres")
+        )
+          continue;
+        const leaves = [
+          ...(sibling.matches("span, button") ? [sibling] : []),
+          ...Array.from(sibling.querySelectorAll("span, button")),
+        ];
+        for (const leaf of leaves) {
+          if (
+            leaf.children.length ||
+            !leaf.textContent?.trim() ||
+            leaf.closest(".main-trackInfo-genres")
+          )
+            continue;
+          const rect = leaf.getBoundingClientRect();
+          if (
+            rect.width > 0 &&
+            rect.height > 0 &&
+            rect.top >= titleBox.bottom - 1 &&
+            rect.left < titleBox.right &&
+            rect.right > titleBox.left
+          )
+            candidates.push(leaf as HTMLElement);
+        }
+      }
+      if (candidates.length) {
+        if (candidates.length === 1) artist = candidates[0];
+        break; // Ambiguous text must retain the existing fallback.
+      }
+      if (parent === scope) break;
+      branch = parent;
+    }
+  }
 
   const hostRect = host.getBoundingClientRect();
   const wide =

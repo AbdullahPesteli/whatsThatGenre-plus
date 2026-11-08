@@ -465,6 +465,73 @@ function layout(scene, host, container) {
 
 // ---------- tests ----------
 
+for (const tag of ["span", "button"]) {
+  for (const wrapped of [false, true]) {
+    test(`native ${tag} byline (${wrapped ? "wrapped" : "direct"}) is measured and observed`, async (t) => {
+      fresh();
+      const f = buildScopeScene(320);
+      const row = makeContainer();
+      f.artist.tagName = tag.toUpperCase();
+      f.artist.removeAttribute("href");
+      f.artist.textContent = "Artist name";
+      if (wrapped) {
+        f.widget.children = f.widget.children.filter((el) => el !== f.artist);
+        const wrapper = new FakeEl("div", { rect: f.artist._rect });
+        wrapper.appendChild(f.artist);
+        f.widget.appendChild(wrapper);
+      }
+      fakeDoc.root = f.root;
+      mountUnder(row, f.widget, f.widget);
+      __wtg.layout(row);
+      assertZeroIntersections(t, f, row, "native byline initial");
+      const ro = FakeResizeObserver.instances[0];
+      assert.ok(ro.targets.has(f.artist), "native artist is a resize target");
+      f.artist.setRect({ bottom: 370 });
+      ro.fire();
+      await sleep(400);
+      assertZeroIntersections(
+        t,
+        f,
+        row,
+        "native byline reflow without window.resize",
+      );
+      __wtg.dispose();
+      assert.equal(ro.targets.size, 0);
+      __wtg.layout(row);
+      assertZeroIntersections(t, f, row, "native byline remount");
+      __wtg.dispose();
+    });
+  }
+}
+
+for (const variant of ["empty", "ambiguous", "row-only"]) {
+  test(`non-link fallback stays conservative for ${variant} content`, () => {
+    fresh();
+    const f = buildScopeScene(320);
+    const row = makeContainer();
+    f.artist.tagName = "SPAN";
+    f.artist.removeAttribute("href");
+    f.artist.textContent = variant === "empty" ? "" : "Artist name";
+    if (variant === "row-only") {
+      f.widget.children = f.widget.children.filter((el) => el !== f.artist);
+      row.appendChild(f.artist);
+    } else if (variant === "ambiguous") {
+      const other = new FakeEl("button", { rect: f.artist._rect });
+      other.textContent = "Other text";
+      f.widget.appendChild(other);
+    }
+    fakeDoc.root = f.root;
+    mountUnder(row, f.widget, f.widget);
+    __wtg.layout(row);
+    assert.equal(
+      rowRectOf(row).top,
+      f.title.getBoundingClientRect().bottom + 2,
+    );
+    assert.ok(!FakeResizeObserver.instances[0].targets.has(f.artist));
+    __wtg.dispose();
+  });
+}
+
 for (const area of [200, 320, 457]) {
   test(`scope host @${area}: mount — row clears cover, zero intersections`, (t) => {
     fresh();
