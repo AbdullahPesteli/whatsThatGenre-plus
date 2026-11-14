@@ -475,6 +475,50 @@ function disposeGenreLayoutWatch(): void {
  *    overflow:hidden ancestor) it is hidden and the genres go to the host's
  *    tooltip instead.
  */
+/** Reserve rendered local text, including Spotify's optional quality line.
+ * No client-specific quality class or translated label is required. Only text
+ * intersecting the proposed row matters; unrelated controls stay out of scope.
+ */
+function avoidLocalText(
+  scope: HTMLElement,
+  row: HTMLElement,
+  box: Box,
+  height: number,
+): Box {
+  const obstacles: DOMRect[] = [];
+  for (const parent of Array.from(scope.querySelectorAll<HTMLElement>("*"))) {
+    if (
+      parent.children.length ||
+      row.contains(parent) ||
+      !parent.textContent?.trim()
+    )
+      continue;
+    if (parent.closest("script, style, [hidden], [aria-hidden='true']"))
+      continue;
+    const style = getComputedStyle(parent);
+    if (style.visibility === "hidden" || style.display === "none") continue;
+    // Reserve the complete rendered label line, not just its glyph bounds.
+    obstacles.push(parent.getBoundingClientRect());
+  }
+  let bottom = box.bottom;
+  for (let pass = 0; pass <= obstacles.length; pass++) {
+    const top = anchorTop({ ...box, bottom }, 0);
+    const hits = obstacles.filter(
+      (r) =>
+        r.width > 0 &&
+        r.height > 0 &&
+        r.left < box.right &&
+        r.right > box.left &&
+        r.top < top + height &&
+        r.bottom > top,
+    );
+    const next = Math.max(bottom, ...hits.map((r) => r.bottom));
+    if (next === bottom) break;
+    bottom = next;
+  }
+  return bottom === box.bottom ? box : { ...box, top: bottom, bottom };
+}
+
 function layoutGenreContainer(genreContainer: HTMLDivElement) {
   const host = genreContainer.parentElement as HTMLElement | null;
   if (!host) return;
@@ -540,7 +584,14 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     right: box.left + width,
   };
   const geo = placeRowGeo({
-    host: rowBox,
+    host: avoidLocalText(
+      host.closest<HTMLElement>(
+        '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
+      ) ?? host,
+      genreContainer,
+      rowBox,
+      rowHeight,
+    ),
     bar: barRect,
     rowHeight,
     clipBottom,
