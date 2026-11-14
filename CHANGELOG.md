@@ -5,6 +5,18 @@ All notable changes to **What's That Genre? Plus** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2026-11-14
+
+### Fixed
+
+- Genre labels avoid Spotify's Lossless/quality line, cover, title and artist.
+- Re-layout when the quality line is added, removed or shown/hidden later; when there is no room, labels are hidden and stay in the tooltip.
+
+### Validation scope and known limits
+
+- Validated in isolated Chromium with the compiled bundle against a layout reconstructed from a user-reported macOS screenshot; native Spotify was not run and the real quality-line DOM was not captured.
+- Existing limits remain: text sharing a non-leaf container with SVG can overlap; visually visible aria-hidden text is not treated as an obstacle; many labels in narrow windows can be clipped with a +N summary.
+
 ## [2.3.1] - 2026-11-08
 
 ### Fixed
