@@ -189,7 +189,7 @@ export const MSG_SERVICE_ERROR = "Couldn't get the genre right now";
 export const MSG_UPDATE_FAILED = "Update failed";
 export const MSG_RETRY = "Try again";
 export const MSG_SEARCH_AGAIN = "Search again";
-export const EXTENSION_VERSION = "2.3.1";
+export const EXTENSION_VERSION = "2.3.2";
 
 /** User-facing source name (stored value "Apple Music" is shown as iTunes). */
 export function sourceLabel(source: string): string {
