@@ -421,6 +421,7 @@ function resolveContentAnchor(host: HTMLElement): ContentAnchor {
 /** Debounced relayout watcher for byline re-flows without a window.resize. */
 interface AnchorWatch {
   observer: ResizeObserver;
+  mutations?: MutationObserver;
   relayout: { (): void; cancel(): void };
   targets: Set<Element>;
   dead: boolean;
@@ -443,6 +444,35 @@ function watchAnchor(genreContainer: HTMLDivElement, els: Element[]): void {
       // The row itself is never observed, so this cannot feed back into it.
       if (!watch.dead) watch.relayout();
     });
+    const scope =
+      genreContainer.parentElement?.closest<HTMLElement>(
+        '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
+      ) ?? genreContainer.parentElement;
+    if (scope && typeof MutationObserver !== "undefined") {
+      watch.mutations = new MutationObserver((records) => {
+        if (watch.dead) return;
+        // Ignore all our own row/marquee DOM writes to avoid feedback.
+        if (
+          records.some((record) => {
+            if (genreContainer.contains(record.target)) return false;
+            if (record.type !== "childList") return true;
+            return [
+              ...Array.from(record.addedNodes),
+              ...Array.from(record.removedNodes),
+            ].some(
+              (node) =>
+                node !== genreContainer && !genreContainer.contains(node),
+            );
+          })
+        )
+          watch.relayout();
+      });
+      watch.mutations.observe(scope, {
+        childList: true,
+        subtree: true,
+        characterData: true,
+      });
+    }
     anchorWatch = watch;
   }
   const watch = anchorWatch;
@@ -461,6 +491,7 @@ function disposeGenreLayoutWatch(): void {
   if (!watch) return;
   watch.dead = true;
   watch.observer.disconnect();
+  watch.mutations?.disconnect();
   watch.relayout.cancel();
 }
 
@@ -496,9 +527,21 @@ function avoidLocalText(
     if (parent.closest("script, style, [hidden], [aria-hidden='true']"))
       continue;
     const style = getComputedStyle(parent);
-    if (style.visibility === "hidden" || style.display === "none") continue;
+    if (
+      style.visibility === "hidden" ||
+      style.display === "none" ||
+      Number(style.opacity ?? 1) === 0 ||
+      (style.clip && style.clip !== "auto") ||
+      (style.clipPath && style.clipPath !== "none")
+    )
+      continue;
+    const rect = parent.getBoundingClientRect();
+    // Quality is local byline-aligned text, not a timer elsewhere in the widget.
+    // Do not identify a translated/client-specific label by its spelling.
+    if (rect.width < 4 || rect.height < 4 || Math.abs(rect.left - box.left) > 4)
+      continue;
     // Reserve the complete rendered label line, not just its glyph bounds.
-    obstacles.push(parent.getBoundingClientRect());
+    obstacles.push(rect);
   }
   let bottom = box.bottom;
   for (let pass = 0; pass <= obstacles.length; pass++) {
@@ -583,7 +626,7 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     left: box.left,
     right: box.left + width,
   };
-  const geo = placeRowGeo({
+  let geo = placeRowGeo({
     host: avoidLocalText(
       host.closest<HTMLElement>(
         '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
@@ -596,6 +639,10 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     rowHeight,
     clipBottom,
   });
+  // A speculative text reservation must never turn a visible row into tooltip.
+  if (geo.hidden) {
+    geo = placeRowGeo({ host: rowBox, bar: barRect, rowHeight, clipBottom });
+  }
   const placed = {
     left: box.left - parentLeft,
     top: geo.top - parentTop,

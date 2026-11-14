@@ -17,7 +17,7 @@ const { avoidLocalText } = await import(
     Buffer.from(outputFiles[0].text).toString("base64")
 );
 const box = { left: 80, right: 280, top: 10, bottom: 46 };
-function reserve(rects) {
+function reserve(rects, styles = {}) {
   const nodes = rects.map((rect) => ({
     textContent: "Lossless",
     children: [],
@@ -27,6 +27,7 @@ function reserve(rects) {
   globalThis.getComputedStyle = () => ({
     visibility: "visible",
     display: "block",
+    ...styles,
   });
   try {
     return avoidLocalText(
@@ -46,6 +47,24 @@ test("quality line below artist reserves its rendered line-height", () => {
     bottom: 64,
   });
 });
+for (const [name, rect, style] of [
+  ["transparent", {}, { opacity: "0" }],
+  [
+    "clipped screen reader",
+    { width: 1, height: 1 },
+    { clip: "rect(0px, 0px, 0px, 0px)" },
+  ],
+  ["zero width", { width: 0 }, {}],
+  ["tiny", { width: 2, height: 2 }, {}],
+  ["unrelated timer", { left: 180, right: 230 }, {}],
+]) {
+  test(`ignore ${name} text`, () => {
+    assert.equal(
+      reserve([{ left: 80, right: 140, top: 46, bottom: 64, ...rect }], style),
+      box,
+    );
+  });
+}
 test("without quality line the original anchor is unchanged", () => {
   assert.equal(reserve([]), box);
 });
