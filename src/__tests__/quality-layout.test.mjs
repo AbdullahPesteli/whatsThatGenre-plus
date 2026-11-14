@@ -47,6 +47,14 @@ test("quality line below artist reserves its rendered line-height", () => {
     bottom: 64,
   });
 });
+test("inset quality text is not discarded by left alignment", () => {
+  for (const left of [86, 96])
+    assert.equal(
+      reserve([{ left, right: left + 60, top: 46, bottom: 64 }]).bottom,
+      64,
+    );
+});
+
 for (const [name, rect, style] of [
   ["transparent", {}, { opacity: "0" }],
   [
@@ -56,7 +64,8 @@ for (const [name, rect, style] of [
   ],
   ["zero width", { width: 0 }, {}],
   ["tiny", { width: 2, height: 2 }, {}],
-  ["unrelated timer", { left: 180, right: 230 }, {}],
+  ["oversized unrelated region", { height: 90 }, {}],
+  ["unrelated timer", { left: 300, right: 350 }, {}],
 ]) {
   test(`ignore ${name} text`, () => {
     assert.equal(

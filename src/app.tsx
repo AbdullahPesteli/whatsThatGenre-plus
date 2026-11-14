@@ -471,6 +471,8 @@ function watchAnchor(genreContainer: HTMLDivElement, els: Element[]): void {
         childList: true,
         subtree: true,
         characterData: true,
+        attributes: true,
+        attributeFilter: ["class", "style", "hidden", "aria-hidden"],
       });
     }
     anchorWatch = watch;
@@ -524,7 +526,11 @@ function avoidLocalText(
       !parent.textContent?.trim()
     )
       continue;
-    if (parent.closest("script, style, [hidden], [aria-hidden='true']"))
+    if (
+      parent.closest(
+        "script, style, button, [role='button'], [hidden], [aria-hidden='true']",
+      )
+    )
       continue;
     const style = getComputedStyle(parent);
     if (
@@ -536,9 +542,16 @@ function avoidLocalText(
     )
       continue;
     const rect = parent.getBoundingClientRect();
-    // Quality is local byline-aligned text, not a timer elsewhere in the widget.
-    // Do not identify a translated/client-specific label by its spelling.
-    if (rect.width < 4 || rect.height < 4 || Math.abs(rect.left - box.left) > 4)
+    // Ignore clock controls, not translated quality labels. All other visible
+    // local text uses horizontal intersection, not an x-start tolerance.
+    if (/^\d{1,2}:\d{2}$/.test(parent.textContent.trim())) continue;
+    if (
+      rect.width < 4 ||
+      rect.height < 4 ||
+      rect.height > Math.max(height * 2, box.bottom - box.top) ||
+      rect.right <= box.left ||
+      rect.left >= box.right
+    )
       continue;
     // Reserve the complete rendered label line, not just its glyph bounds.
     obstacles.push(rect);
@@ -626,7 +639,7 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     left: box.left,
     right: box.left + width,
   };
-  let geo = placeRowGeo({
+  const geo = placeRowGeo({
     host: avoidLocalText(
       host.closest<HTMLElement>(
         '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
@@ -639,10 +652,6 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     rowHeight,
     clipBottom,
   });
-  // A speculative text reservation must never turn a visible row into tooltip.
-  if (geo.hidden) {
-    geo = placeRowGeo({ host: rowBox, bar: barRect, rowHeight, clipBottom });
-  }
   const placed = {
     left: box.left - parentLeft,
     top: geo.top - parentTop,
