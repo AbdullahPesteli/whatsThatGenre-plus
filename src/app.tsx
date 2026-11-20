@@ -428,7 +428,30 @@ interface AnchorWatch {
 }
 let anchorWatch: AnchorWatch | undefined;
 
-function watchAnchor(genreContainer: HTMLDivElement, els: Element[]): void {
+function localTextScope(host: HTMLElement): HTMLElement {
+  const widget = host.closest<HTMLElement>(
+    '[data-testid="now-playing-widget"]',
+  );
+  const bar = host.closest<HTMLElement>('[data-testid="now-playing-bar"]');
+  if (bar) return bar;
+  const shell = widget?.parentElement;
+  // Older clients can attach the widget and progress bar to an unnamed shell.
+  // Never fall back to a document-wide scan or observer.
+  if (
+    shell &&
+    shell !== document.body &&
+    shell !== document.documentElement &&
+    shell.querySelector(':scope > [data-testid="playback-progressbar"]')
+  )
+    return shell;
+  return widget ?? host;
+}
+
+function watchAnchor(
+  genreContainer: HTMLDivElement,
+  els: Element[],
+  scope: HTMLElement,
+): void {
   if (typeof ResizeObserver === "undefined") return;
   if (!anchorWatch) {
     const watch: AnchorWatch = {
@@ -444,11 +467,7 @@ function watchAnchor(genreContainer: HTMLDivElement, els: Element[]): void {
       // The row itself is never observed, so this cannot feed back into it.
       if (!watch.dead) watch.relayout();
     });
-    const scope =
-      genreContainer.parentElement?.closest<HTMLElement>(
-        '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
-      ) ?? genreContainer.parentElement;
-    if (scope && typeof MutationObserver !== "undefined") {
+    if (typeof MutationObserver !== "undefined") {
       watch.mutations = new MutationObserver((records) => {
         if (watch.dead) return;
         // Ignore all our own row/marquee DOM writes to avoid feedback.
@@ -512,6 +531,41 @@ function disposeGenreLayoutWatch(): void {
  * No client-specific quality class or translated label is required. Only text
  * intersecting the proposed row matters; unrelated controls stay out of scope.
  */
+function hasEmptyTextClip(element: HTMLElement, style: CSSStyleDeclaration) {
+  // Range and element rects still have area when an inset clips all paint.
+  // Handle simple insets (including zero) and legacy rects; do not guess at
+  // arbitrary clip shapes, calc(), or non-default reference boxes.
+  const inset = /^inset\(([^()]*)\)$/.exec(style.clipPath);
+  if (inset) {
+    const sides = inset[1].split(" round ")[0].trim().split(/\s+/);
+    if (
+      sides.length <= 4 &&
+      sides.every((side) => /^-?(?:\d*\.)?\d+(?:px|%)?$/.test(side))
+    ) {
+      const [top, right = top, bottom = top, left = right] = sides;
+      const rect = element.getBoundingClientRect();
+      const px = (side: string, size: number) =>
+        parseFloat(side) * (side.endsWith("%") ? size / 100 : 1);
+      // CSS normalizes over-constrained inset pairs down to zero extent.
+      return (
+        (rect.height > 0 &&
+          px(top, rect.height) + px(bottom, rect.height) >= rect.height) ||
+        (rect.width > 0 &&
+          px(left, rect.width) + px(right, rect.width) >= rect.width)
+      );
+    }
+  }
+  const legacy = /^rect\(([^()]*)\)$/.exec(style.clip);
+  if (legacy && (style.position === "absolute" || style.position === "fixed")) {
+    const [top, right, bottom, left] = legacy[1].split(/,\s*/);
+    return (
+      parseFloat(right) <= parseFloat(left) ||
+      parseFloat(bottom) <= parseFloat(top)
+    );
+  }
+  return false;
+}
+
 function avoidLocalText(
   scope: HTMLElement,
   row: HTMLElement,
@@ -526,20 +580,9 @@ function avoidLocalText(
       !parent.textContent?.trim()
     )
       continue;
-    if (
-      parent.closest(
-        "script, style, button, [role='button'], [hidden], [aria-hidden='true']",
-      )
-    )
-      continue;
+    if (parent.closest("script, style")) continue;
     const style = getComputedStyle(parent);
-    if (
-      style.visibility === "hidden" ||
-      style.display === "none" ||
-      Number(style.opacity ?? 1) === 0 ||
-      (style.clip && style.clip !== "auto") ||
-      (style.clipPath && style.clipPath !== "none")
-    )
+    if (style.visibility === "hidden" || style.visibility === "collapse")
       continue;
     const rect = parent.getBoundingClientRect();
     // Ignore clock controls, not translated quality labels. All other visible
@@ -553,8 +596,21 @@ function avoidLocalText(
       rect.left >= box.right
     )
       continue;
+    // Accessibility and pointer targeting do not determine whether text paints.
+    let unpainted = false;
+    for (let el: HTMLElement | null = parent; el; el = el.parentElement) {
+      const css = el === parent ? style : getComputedStyle(el);
+      if (
+        css.display === "none" ||
+        Number(css.opacity) === 0 ||
+        hasEmptyTextClip(el, css)
+      ) {
+        unpainted = true;
+        break;
+      }
+    }
     // Reserve the complete rendered label line, not just its glyph bounds.
-    obstacles.push(rect);
+    if (!unpainted) obstacles.push(rect);
   }
   let bottom = box.bottom;
   for (let pass = 0; pass <= obstacles.length; pass++) {
@@ -582,7 +638,8 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
   const { box, watch } = resolveContentAnchor(host);
   // Re-measure on byline/host reflow (title/artist re-wrap) without a
   // window.resize; the watcher dedupes targets and never observes the row.
-  watchAnchor(genreContainer, watch);
+  const scope = localTextScope(host);
+  watchAnchor(genreContainer, watch, scope);
   const widget = host.closest(
     '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
   );
@@ -640,14 +697,7 @@ function layoutGenreContainer(genreContainer: HTMLDivElement) {
     right: box.left + width,
   };
   const geo = placeRowGeo({
-    host: avoidLocalText(
-      host.closest<HTMLElement>(
-        '[data-testid="now-playing-widget"], [data-testid="now-playing-bar"]',
-      ) ?? host,
-      genreContainer,
-      rowBox,
-      rowHeight,
-    ),
+    host: avoidLocalText(scope, genreContainer, rowBox, rowHeight),
     bar: barRect,
     rowHeight,
     clipBottom,

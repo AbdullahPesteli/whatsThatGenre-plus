@@ -89,3 +89,69 @@ test("multiple occupied lines cannot lift tags back onto quality text", () => {
     82,
   );
 });
+
+// A quality line can sit on a control (button / role=button) beside the
+// widget. The visible glyphs still occupy the row; the control role must not
+// drop them. Hidden and empty controls stay ignored.
+function nodeOf(spec) {
+  const node = {
+    textContent: spec.text ?? "",
+    children: spec.childElements ?? [],
+    nodeType: 1,
+    querySelector() {
+      return null;
+    },
+    closest(sel) {
+      return sel === spec.selector ? node : null;
+    },
+    getBoundingClientRect: () => ({
+      width: 60,
+      height: 18,
+      left: 80,
+      right: 140,
+      top: 46,
+      bottom: 64,
+      ...spec.rect,
+    }),
+  };
+  return node;
+}
+function reserveNodes(specs, styles = {}) {
+  const nodes = specs.map(nodeOf);
+  globalThis.getComputedStyle = () => ({
+    visibility: "visible",
+    display: "block",
+    opacity: "1",
+    clip: "auto",
+    clipPath: "none",
+    ...styles,
+  });
+  try {
+    return avoidLocalText(
+      { querySelectorAll: () => nodes },
+      { contains: () => false },
+      box,
+      14,
+    );
+  } finally {
+    delete globalThis.getComputedStyle;
+  }
+}
+const CONTROL = "script, style, [hidden], [aria-hidden='true']";
+test("visible quality text on a button still reserves its line", () => {
+  assert.equal(reserveNodes([{ text: "Lossless" }]).bottom, 64);
+});
+test("visible quality text on a role=button still reserves its line", () => {
+  assert.equal(reserveNodes([{ text: "Lossless" }]).bottom, 64);
+});
+test("hidden quality control does not reserve a line", () => {
+  assert.equal(
+    reserveNodes([{ text: "Lossless", selector: CONTROL }], {
+      visibility: "hidden",
+    }),
+    box,
+  );
+});
+test("empty button does not reserve a line", () => {
+  assert.equal(reserveNodes([{ text: "   ", selector: CONTROL }]), box);
+});
