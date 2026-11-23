@@ -14,6 +14,10 @@ A [Spicetify](https://spicetify.app) extension that restores **genres and sub-st
 
 A `DISCOGS` or `TRACK` badge identifies the source. No API key, bundled database, or configuration is required.
 
+### Genre card
+
+Genre-card requests run only when you click a genre tag and need no API key. The card uses Wikipedia and Wikidata for descriptions (Turkish first when Spotify is in Turkish), Musicalyst/EveryNoise for artists and related genres, and MusicBrainz for extra artists. Artist images are shown only when Spotify supplies an `https://i.scdn.co/` URL. Results are cached in `localStorage` for 30 days for full cards, 7 days for partial results, and 1 day for results with no data. Even if every source fails, the card finishes loading and shows search links.
+
 ## Install
 
 **Marketplace:** Spotify → Marketplace → search **“What's That Genre? Plus”** → Install.
@@ -29,6 +33,8 @@ spicetify apply
 ## Credits
 
 Forked from [LucasOe/spicetify-genres](https://github.com/LucasOe/spicetify-genres), whose original code is MIT-licensed and was inspired by Tetrax-10 and soapu. Genre/style data comes from [Discogs](https://www.discogs.com) with [Apple Music](https://music.apple.com) fallback. Built with [Spicetify Creator](https://github.com/spicetify/spicetify-creator).
+
+Genre descriptions: Wikipedia (CC BY-SA 4.0), Wikidata (CC0), MusicBrainz (CC0), Musicalyst/EveryNoise data.
 
 ## License
 

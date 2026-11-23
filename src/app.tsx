@@ -11,8 +11,13 @@ import {
   attachSettingsGestures,
   registerSettingsButton,
 } from "./settings/panel";
+import {
+  fetchGenreInfo,
+  safeHttps,
+  spotifyImage,
+  type GenreInfo,
+} from "./sources/genre-info";
 import { currentLang, loadSettings, tr } from "./settings/store";
-import type { MusicalystData } from "./types/musicalyst";
 import {
   MSG_LOOKING,
   MSG_RETRY,
@@ -51,6 +56,7 @@ let settingsButtonRegistered = false;
 let forceRefreshHook: (() => void) | undefined;
 const T = (text: string) => tr(text, currentLang(safeStorage()));
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let genreRequestId = 0;
 
 export default async function main() {
   teardownPrevious?.();
@@ -788,183 +794,283 @@ async function renderGenres(
   });
 }
 
-async function clickGenreTag(genre: string) {
-  // Show Skeleton while loading
-  const skeleton = document.createElement("div");
-  skeleton.className = "genre-description-container";
-  skeleton.innerHTML = /* HTML */ `
-    <div class="skeleton" style="height: 144px;"></div>
-    <div class="skeleton" style="height: 86px;"></div>
-    <div class="skeleton" style="height: calc(75vh - 375px);"></div>
-  `;
+const genreTranslations = {
+  noDescription: "This genre has no description available",
+  loadingInfo: "Looking for genre information…",
+  englishSource: "English source",
+  source: "Source",
+  topArtists: "Top Artists",
+  related: "Related genres",
+  searchArtists: "Find artists on Spotify",
+  playlist: "Open genre playlist",
+} as const;
 
-  Spicetify.PopupModal.display({
-    title: camelize(genre),
-    content: skeleton,
-    isLarge: true,
-  });
+const spotifyId = (id: unknown): id is string =>
+  typeof id === "string" && /^[a-zA-Z0-9]{22}$/.test(id);
 
-  const playlist = await fetchSpotifyPlaylistURI(genre);
-  const data = await fetchMusicalyst(genre);
-
-  if (!data || !playlist) {
-    Spicetify.PopupModal.hide();
-    return;
-  }
-
-  // Check if the skeleton still exist to display the content
-  if (document.querySelector("div.genre-description-container")) {
-    Spicetify.PopupModal.display({
-      title: camelize(genre),
-      content: await createContent(data, playlist),
-      isLarge: true,
-    });
-  }
-}
-
-async function fetchMusicalyst(
+async function fetchSpotifyArtists(
   genre: string,
-): Promise<MusicalystData | undefined> {
-  const escaped = replaceAll(replaceAll(genre, " ", "-"), ":", "");
-  const url = `https://lucasoe.github.io/spicetify-genres/api/${escaped}.json`;
+): Promise<GenreInfo["artists"]> {
   try {
-    const initialRequest = await fetch(url);
-    const response = await initialRequest.json();
-    return response.pageProps;
+    const query = encodeURIComponent(`genre:"${genre.replace(/["\\]/g, " ")}"`);
+    const result = (await Spicetify.CosmosAsync.get(
+      `https://api.spotify.com/v1/search?type=artist&q=${query}&limit=8`,
+    )) as SpotifyApi.ArtistSearchResponse;
+    return (Array.isArray(result?.artists?.items) ? result.artists.items : [])
+      .slice(0, 8)
+      .flatMap((a: SpotifyApi.ArtistObjectFull | null) =>
+        a && spotifyId(a.id) && typeof a.name === "string" && a.name.trim()
+          ? [
+              {
+                name: a.name,
+                spotifyId: a.id,
+                image:
+                  spotifyImage(a.images?.[2]?.url) ??
+                  spotifyImage(a.images?.[0]?.url),
+              },
+            ]
+          : [],
+      );
   } catch {
-    Spicetify.showNotification(
-      `Couldn't find genre on Musicalyst: ${camelize(genre)}`,
-      true,
-    );
-    return;
+    return [];
   }
 }
 
-async function fetchSpotifyPlaylistURI(
+export async function clickGenreTag(genre: string) {
+  const requestId = ++genreRequestId;
+  const title = camelize(genre);
+  const lang = currentLang(safeStorage());
+  const waiting = document.createElement("div");
+  waiting.className = "genre-description-container";
+  waiting.setAttribute("aria-busy", "true");
+  waiting.textContent = tr(genreTranslations.loadingInfo, lang);
+  Spicetify.PopupModal.display({ title, content: waiting, isLarge: true });
+  const [found, spotifyArtists] = await Promise.all([
+    fetchGenreInfo(genre, lang).catch(() => undefined),
+    new Promise<GenreInfo["artists"]>((resolve) => {
+      const timer = setTimeout(() => resolve([]), 2000);
+      void fetchSpotifyArtists(genre)
+        .then(resolve)
+        .finally(() => clearTimeout(timer));
+    }),
+  ]);
+  if (requestId !== genreRequestId) return;
+  const info = found ?? {
+    query: genre,
+    lang,
+    description: null,
+    title: null,
+    fallbackNote: false,
+    attribution: [],
+    artists: [],
+    related: [],
+    playlistHint: null,
+  };
+  const useSpotify =
+    !!spotifyArtists.length && !info.artists.some((a) => a.spotifyId);
+  const card = createInfoContent(
+    info,
+    useSpotify ? spotifyArtists : info.artists,
+    useSpotify,
+  );
+  waiting.replaceChildren(card);
+  waiting.removeAttribute("aria-busy");
+}
+
+type PopupInfo = Pick<
+  GenreInfo,
+  | "query"
+  | "lang"
+  | "description"
+  | "title"
+  | "fallbackNote"
+  | "attribution"
+  | "artists"
+  | "related"
+  | "playlistHint"
+> &
+  Partial<Pick<GenreInfo, "descUrl" | "descSource" | "descLang">>;
+function createInfoContent(
+  info: PopupInfo,
+  artists: GenreInfo["artists"],
+  useSpotify: boolean,
+): HTMLDivElement {
+  const label = (key: keyof typeof genreTranslations) =>
+    tr(genreTranslations[key], info.lang);
+  const container = document.createElement("div");
+  container.className = "genre-description-container wtg-info-card";
+  const desc = document.createElement("p");
+  desc.className = "wtg-info-description";
+  const bilingual =
+    info.lang === "tr" && info.descLang === "tr" && info.fallbackNote;
+  const split = bilingual ? (info.description?.indexOf("\n") ?? -1) : -1;
+  if (split >= 0 && info.description) {
+    const lead = document.createElement("p");
+    lead.className = "wtg-info-lead";
+    lead.lang = "tr";
+    lead.textContent = info.description.slice(0, split);
+    container.appendChild(lead);
+  }
+  desc.lang = split >= 0 ? "en" : (info.descLang ?? info.lang);
+  desc.textContent =
+    info.description?.slice(split + 1) ?? label("noDescription");
+  if (info.description) {
+    desc.tabIndex = 0;
+    desc.title = desc.textContent;
+  }
+  container.appendChild(desc);
+  function link(name: string, href: string, external = true) {
+    const a = document.createElement("a");
+    a.textContent = name;
+    a.href = href;
+    if (external) {
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+    }
+    return a;
+  }
+  if (info.attribution.length || info.fallbackNote || useSpotify) {
+    const attribution = document.createElement("small");
+    attribution.className = "wtg-info-attribution";
+    attribution.append(`${label("source")}: `);
+    const credits = [
+      ...info.attribution.map((name) => [
+        info.lang === "tr" && name.startsWith("Wikipedia")
+          ? name.replace("Wikipedia", "Vikipedi")
+          : name,
+        name.startsWith("Wikipedia")
+          ? safeHttps(info.descUrl)
+          : name.startsWith("Wikidata")
+            ? info.descSource === "wikidata"
+              ? safeHttps(info.descUrl)
+              : "https://www.wikidata.org/"
+            : name.startsWith("Musicalyst")
+              ? info.descSource === "musicalyst"
+                ? safeHttps(info.descUrl)
+                : "https://lucasoe.github.io/spicetify-genres/"
+              : "https://musicbrainz.org/",
+      ]),
+      ...(useSpotify ? [["Spotify", "https://open.spotify.com/"]] : []),
+    ];
+    credits.forEach(([name, href], index) => {
+      if (!name) return;
+      if (index) attribution.append(" · ");
+      if (href) attribution.appendChild(link(name, href));
+      else attribution.append(name);
+    });
+    if (info.fallbackNote) attribution.append(` · ${label("englishSource")}`);
+    container.appendChild(attribution);
+  }
+  function section(heading: string, body: HTMLElement) {
+    const group = document.createElement("section");
+    const h = document.createElement("h3");
+    h.className = "main-type-alto";
+    h.textContent = heading;
+    group.append(h, body);
+    container.appendChild(group);
+  }
+  const q = encodeURIComponent(info.query);
+  const spotifySearch = `https://open.spotify.com/search/${q}`;
+  if (artists.length) {
+    const row = document.createElement("div");
+    row.className = "wtg-info-artists";
+    for (const artist of artists.slice(0, 8)) {
+      const id = spotifyId(artist.spotifyId) ? artist.spotifyId : undefined;
+      const card = link(
+        "",
+        id
+          ? `spotify:artist:${id}`
+          : `https://open.spotify.com/search/${encodeURIComponent(artist.name)}/artists`,
+        !id,
+      );
+      card.className = "main-card-card wtg-info-artist";
+      card.addEventListener("click", () => Spicetify.PopupModal.hide());
+      const circle = document.createElement("div");
+      circle.className = "main-cardImage-imageWrapper wtg-info-avatar";
+      circle.setAttribute("aria-hidden", "true");
+      circle.textContent =
+        Array.from(artist.name)[0]?.toLocaleUpperCase(info.lang) ?? "?";
+      const image = spotifyImage(artist.image);
+      if (image) {
+        const img = document.createElement("img");
+        img.className = "main-image-image main-cardImage-image";
+        img.alt = "";
+        img.draggable = false;
+        img.addEventListener("error", () => img.remove(), { once: true });
+        img.src = image;
+        circle.appendChild(img);
+      }
+      const name = document.createElement("span");
+      name.textContent = artist.name;
+      card.append(circle, name);
+      row.appendChild(card);
+    }
+    section(label("topArtists"), row);
+  } else {
+    section(
+      label("topArtists"),
+      link(label("searchArtists"), `${spotifySearch}/artists`),
+    );
+  }
+  if (info.related.length) {
+    const related = document.createElement("div");
+    related.className = "related-genres-container";
+    for (const item of info.related.slice(0, 12)) {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "genre-tag";
+      chip.textContent = item.name;
+      chip.addEventListener("click", () => void clickGenreTag(item.name));
+      related.appendChild(chip);
+    }
+    section(label("related"), related);
+  }
+  const links = document.createElement("div");
+  links.className = "related-genres-container wtg-info-links";
+  const targets = [
+    [
+      info.lang === "tr" ? "Vikipedi" : "Wikipedia",
+      `https://${info.lang}.wikipedia.org/wiki/Special:Search?search=${q}`,
+    ],
+    ["Discogs", `https://www.discogs.com/search/?q=${q}&type=all`],
+    ["Spotify", spotifySearch],
+  ];
+  const playlistId = info.playlistHint?.replace(/^spotify:playlist:/, "");
+  if (spotifyId(playlistId))
+    targets.push([
+      label("playlist"),
+      `https://open.spotify.com/playlist/${playlistId}`,
+    ]);
+  for (const [name, href] of targets) {
+    const a = link(name, href);
+    a.className = "genre-tag";
+    links.appendChild(a);
+  }
+  container.appendChild(links);
+  return container;
+}
+
+// The information popup uses the source's playlist hint, not an additional playlist search.
+export async function fetchSpotifyPlaylistURI(
   genre: string,
 ): Promise<SpotifyApi.SinglePlaylistResponse | undefined> {
   const name = `The Sound of ${camelize(genre)}`;
-  // The limit parameter maximum value has been reduced from 50 to 10
-  // https://developer.spotify.com/documentation/web-api/references/changes/february-2026
-  const searchResponse: SpotifyApi.PlaylistSearchResponse =
-    await Spicetify.CosmosAsync.get(
-      `https://api.spotify.com/v1/search?q=${encodeURIComponent(name)}&type=playlist&limit=10`,
-    );
-
-  for (const item of searchResponse.playlists.items) {
-    if (
-      item.owner.id === "thesoundsofspotify" &&
-      item.name.toLowerCase() === name.toLowerCase()
-    ) {
-      return Spicetify.CosmosAsync.get(
-        `https://api.spotify.com/v1/playlists/${item.id}`,
+  try {
+    const search: SpotifyApi.PlaylistSearchResponse =
+      await Spicetify.CosmosAsync.get(
+        `https://api.spotify.com/v1/search?q=${encodeURIComponent(name)}&type=playlist&limit=10`,
       );
+    for (const item of search?.playlists?.items ?? []) {
+      if (
+        item?.owner?.id === "thesoundsofspotify" &&
+        item.name.toLowerCase() === name.toLowerCase()
+      ) {
+        return await Spicetify.CosmosAsync.get(
+          `https://api.spotify.com/v1/playlists/${encodeURIComponent(item.id)}`,
+        );
+      }
     }
+  } catch {
+    /* No playlist is an ordinary absence. */
   }
-
-  Spicetify.showNotification(`Couldn't find playlist: ${name}`, true);
-  return;
-}
-
-async function createContent(
-  data: MusicalystData,
-  playlist: SpotifyApi.PlaylistObjectFull | undefined,
-): Promise<HTMLDivElement> {
-  const contentContainer = document.createElement("div");
-  contentContainer.className = "genre-description-container";
-  contentContainer.appendChild(await createDescription(data));
-  contentContainer.appendChild(await createRelated(data));
-  if (playlist) contentContainer.appendChild(await createPlaylist(playlist));
-  contentContainer.appendChild(await createTopArtists(data));
-  return contentContainer;
-}
-
-async function createDescription(
-  data: MusicalystData,
-): Promise<HTMLDivElement> {
-  const descriptionContainer = document.createElement("div");
-  descriptionContainer.innerHTML = `<p>${data.genresAdvancedInfo.description}</p>`;
-  return descriptionContainer;
-}
-
-async function createRelated(data: MusicalystData): Promise<HTMLDivElement> {
-  const genreContainer = document.createElement("div");
-  genreContainer.className = "related-genres-container";
-  data.relatedGenres.forEach((relatedGenre) => {
-    const genreTag = document.createElement("div");
-    genreTag.className =
-      "TextElement-marginal-textSubdued-text encore-text-marginal genre-tag";
-    genreTag.innerHTML = camelize(relatedGenre.genre);
-    genreTag.onclick = async () => {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      await clickGenreTag(relatedGenre.genre);
-    };
-
-    genreContainer.appendChild(genreTag);
-  });
-
-  return genreContainer;
-}
-
-async function createPlaylist(
-  playlist: SpotifyApi.PlaylistObjectFull,
-): Promise<HTMLDivElement> {
-  const playlistContainer = document.createElement("div");
-  playlistContainer.innerHTML = /* HTML */ `
-    <a
-      href=${playlist.uri}
-      onclick="Spicetify.PopupModal.hide()"
-      class="playlist-container"
-    >
-      <img src="${playlist.images[0].url}" class="playlist-image" />
-      <div class="playlist-description">
-        <h1 class="playlist-title">${playlist.name}</h1>
-        <p class="playlist-stats">
-          ${playlist.owner.display_name} • ${playlist.followers.total} likes •
-          ${playlist.tracks?.total || 0} songs
-        </p>
-      </div>
-    </a>
-  `;
-  return playlistContainer;
-}
-
-async function createTopArtists(data: MusicalystData): Promise<HTMLDivElement> {
-  const artists = () => {
-    let result = "";
-    data.topArtists.forEach(async (artist) => {
-      const artistURI = `spotify:artist:${artist.id}`;
-      result += /* HTML */ `
-        <a
-          href=${artistURI}
-          onclick="Spicetify.PopupModal.hide()"
-          class="main-card-card"
-        >
-          <div class="main-cardImage-imageWrapper">
-            <img
-              class="main-image-image main-cardImage-image"
-              draggable="false"
-              loading="lazy"
-              src="${artist.images[2].url}"
-            />
-          </div>
-          <div
-            class="main-cardHeader-text TypeElement-balladBold-textBase-type-paddingBottom_4px"
-          >
-            ${artist.name}
-          </div>
-        </a>
-      `;
-    });
-    return result;
-  };
-
-  const topArtistsContainer = document.createElement("div");
-  topArtistsContainer.innerHTML = /* HTML */ `
-    <div class="description-container">
-      <h2 class="main-type-alto" as="h2">Top Artists</h2>
-      <div class="main-gridContainer-gridContainer">${artists()}</div>
-    </div>
-  `;
-  return topArtistsContainer;
 }

@@ -234,6 +234,14 @@ const TR: Record<string, string> = {
   "Couldn't get the genre right now": "Tür şu an alınamadı",
   "Update failed": "Güncelleme başarısız",
   "Try again": "Tekrar dene",
+  "This genre has no description available": "Bu tür için açıklama bulunamadı",
+  "Looking for genre information…": "Tür bilgisi aranıyor…",
+  "English source": "İngilizce kaynak",
+  Source: "Kaynak",
+  "Related genres": "İlgili türler",
+  "Find artists on Spotify": "Spotify’da sanatçı ara",
+  "Open genre playlist": "Tür çalma listesini aç",
+  "Top Artists": "Öne çıkan sanatçılar",
   "Search again": "Tekrar ara",
 };
 

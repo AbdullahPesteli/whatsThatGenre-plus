@@ -5,6 +5,16 @@ All notable changes to **What's That Genre? Plus** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-11-23
+
+### Added
+
+- Clicking a genre tag opens a card with a short description from Wikipedia or Wikidata (Turkish first when Spotify's interface is in Turkish), top artists, related genres, and links. The card shows its sources and Wikipedia's CC BY-SA attribution.
+
+### Fixed
+
+- The genre window no longer gets stuck on grey placeholders. Genre names are matched case-insensitively, and clicking a genre no longer shows a red "Couldn't find playlist" alert.
+
 ## [2.3.3] - 2026-11-20
 
 ### Fixed
